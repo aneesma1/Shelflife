@@ -205,16 +205,15 @@
                         const { Filesystem } = window.Capacitor.Plugins;
                         // Use user preference or default
                         const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
-                        // Ensure folder exists (careful with Documents root)
-                        if (folder !== '') {
-                            try {
-                                await Filesystem.mkdir({
-                                    path: `Documents/${folder}`,
-                                    directory: Directory.External,
-                                    recursive: true
-                                });
-                            } catch (e) { } // Exists or error
-                        }
+
+                        // Ensure folder exists
+                        try {
+                            await Filesystem.mkdir({
+                                path: `Documents/${folder}`,
+                                directory: Directory.External,
+                                recursive: true
+                            });
+                        } catch (e) { }
 
                         const cleanPath = folder ? `Documents/${folder}/${name}` : `Documents/${name}`;
 
@@ -224,9 +223,8 @@
                             directory: Directory.External,
                             encoding: Encoding.UTF8
                         });
-                        alert(`Saved to ${cleanPath}`);
+                        alert(`Saved to: Documents/${folder}/${name}`);
                     } catch (e) {
-                        // Fallback to clipboard if write fails
                         console.error(e);
                         alert("Save failed. " + e.message);
                     }
@@ -1006,7 +1004,7 @@
             const performChunkedBackup = async () => {
                 if (!window.Capacitor) { alert("Backup requires Android App (Native Filesystem)."); return; }
                 try {
-                    const { Filesystem, Directory, Encoding } = window.Capacitor.Plugins;
+                    const { Filesystem } = window.Capacitor.Plugins;
                     const allBooks = await db.books.toArray();
                     const now = new Date();
                     const ts = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '_' + String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0') + '-' + String(now.getSeconds()).padStart(2, '0');
@@ -1058,7 +1056,7 @@
             const performNativeRestore = async () => {
                 if (!window.Capacitor) { alert("Restore requires Android App (Native Filesystem)."); return; }
                 try {
-                    const { Filesystem, Directory, Encoding } = window.Capacitor.Plugins;
+                    const { Filesystem } = window.Capacitor.Plugins;
                     const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
 
                     const ret = await Filesystem.readdir({
@@ -1239,6 +1237,30 @@
         // --- SETUP MODAL ---
         const SetupModal = ({ onComplete }) => {
             const [folder, setFolder] = useState('ShelfLife_Backups');
+            const [status, setStatus] = useState('');
+
+            const requestPerms = async () => {
+                if (!window.Capacitor) return;
+                try {
+                    const { Filesystem, Camera } = window.Capacitor.Plugins;
+                    setStatus('Requesting permissions...');
+                    try { await Filesystem.requestPermissions(); } catch (e) { }
+                    try { await Camera.requestPermissions(); } catch (e) { }
+                    // Test Create
+                    try {
+                        await Filesystem.mkdir({
+                            path: `Documents/${folder}`,
+                            directory: Directory.External,
+                            recursive: true
+                        });
+                        setStatus('Permissions Granted & Folder Ready!');
+                    } catch (e) {
+                        setStatus('Error: ' + e.message);
+                    }
+                } catch (e) {
+                    setStatus('Setup Error: ' + e.message);
+                }
+            };
 
             const handleSave = () => {
                 if (!folder.trim()) return alert("Please enter a folder name.");
@@ -1266,6 +1288,11 @@
                                 />
                                 <p className="text-[10px] text-gray-400 mt-1">This folder will be created in your Documents directory.</p>
                             </div>
+
+                            <button onClick={requestPerms} className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg border border-gray-300 text-xs">
+                                🔓 Grant Storage Permissions
+                            </button>
+                            {status && <div className="text-center text-[10px] font-bold text-blue-600 bg-blue-50 p-1 rounded">{status}</div>}
 
                             <button onClick={handleSave} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg transform transition active:scale-95">
                                 Start Using App
