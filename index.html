@@ -199,31 +199,36 @@
                 const now = new Date();
                 return now.toISOString().replace(/[:.]/g, '-').slice(0, 16);
             },
-            download: async (content, name, mimeType, specificFolder = null) => {
+            download: async (content, name, mimeType, specificFolder = null, specificBase = null) => {
                 if (window.Capacitor) {
                     try {
                         const { Filesystem } = window.Capacitor.Plugins;
                         // Use specific folder if provided, else backup preference, else default
                         const folder = specificFolder || localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
+                        const baseStr = specificBase || localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
+
+                        // Map string to Directory Constant
+                        // Note: We use global Directory object defined above
+                        const targetDir = Directory[baseStr] || Directory.Documents;
 
                         // Ensure folder exists
                         try {
                             await Filesystem.mkdir({
-                                path: `Documents/${folder}`,
-                                directory: Directory.External,
+                                path: folder, // Write relative to Base (e.g. Documents/ShelfLife)
+                                directory: targetDir,
                                 recursive: true
                             });
                         } catch (e) { }
 
-                        const cleanPath = folder ? `Documents/${folder}/${name}` : `Documents/${name}`;
+                        const cleanPath = folder ? `${folder}/${name}` : name;
 
                         await Filesystem.writeFile({
                             path: cleanPath,
                             data: content,
-                            directory: Directory.External,
+                            directory: targetDir,
                             encoding: Encoding.UTF8
                         });
-                        alert(`Saved to: Documents/${folder}/${name}`);
+                        alert(`Saved to: ${baseStr}/${cleanPath}`);
                     } catch (e) {
                         console.error(e);
                         alert("Save failed. " + e.message);
@@ -251,7 +256,7 @@
                     }
                 }
             },
-            csv: (books, type, specificFolder = null) => {
+            csv: (books, type, specificFolder = null, specificBase = null) => {
                 const maxTags = books.reduce((max, b) => Math.max(max, (b.tags || []).length), 0);
                 let header = "Title,Author,Publisher,Year,Pages,Condition,Price,Currency,Owner,Location,ISBN,Status";
                 for (let i = 1; i <= maxTags; i++) header += `,Tag_${i}`;
@@ -262,15 +267,15 @@
                     const tagCells = Array.from({ length: maxTags }, (_, i) => `"${(tags[i] || '').replace(/"/g, '""')}"`).join(',');
                     return `${core},${tagCells}`;
                 }).join('\n');
-                ExportUtils.download("\uFEFF" + header + rows, `ShelfLife_Export_${ExportUtils.getTimestamp()}.csv`, "text/csv;charset=utf-8", specificFolder);
+                ExportUtils.download("\uFEFF" + header + rows, `ShelfLife_Export_${ExportUtils.getTimestamp()}.csv`, "text/csv;charset=utf-8", specificFolder, specificBase);
             },
-            htmlText: (books, type, title = "Library Inventory", specificFolder = null) => {
+            htmlText: (books, type, title = "Library Inventory", specificFolder = null, specificBase = null) => {
                 let html = `<html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;padding:20px;} table{width:100%;border-collapse:collapse;} th,td{border:1px solid #ddd;padding:8px;} th{background:#f3f3f3;} tr:nth-child(even){background:#f9f9f9;}</style></head><body><h1>${title}</h1><table><tr><th>Title</th><th>Author</th><th>Publisher</th><th>Year</th><th>Loc</th><th>Cond</th><th>Price</th></tr>${books.map(b => `<tr><td>${b.title}</td><td>${b.author}</td><td>${b.publisher}</td><td>${b.pub_year}</td><td>${b.building} ${b.shelf}</td><td>${b.condition}</td><td>${b.currency || ''} ${b.price}</td></tr>`).join('')}</table></body></html>`;
-                ExportUtils.download(html, `ShelfLife_List_${ExportUtils.getTimestamp()}.html`, "text/html;charset=utf-8", specificFolder);
+                ExportUtils.download(html, `ShelfLife_List_${ExportUtils.getTimestamp()}.html`, "text/html;charset=utf-8", specificFolder, specificBase);
             },
-            htmlVisual: (books, type, title = "Visual Catalogue", specificFolder = null) => {
+            htmlVisual: (books, type, title = "Visual Catalogue", specificFolder = null, specificBase = null) => {
                 let html = `<html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;padding:20px;} .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:20px;} .card{border:1px solid #ddd;padding:10px;text-align:center;border-radius:8px;} img{width:100%;height:150px;object-fit:cover;margin-bottom:10px;border-radius:4px;} .meta{font-size:12px;color:#666;}</style></head><body><h1>${title}</h1><div class="grid">${books.map(b => `<div class="card">${b.front ? `<img src="${b.front}"/>` : ''}<b>${b.title}</b><br><small>${b.author}</small><br><span class="meta">${b.publisher} • ${b.pub_year}</span></div>`).join('')}</div></body></html>`;
-                ExportUtils.download(html, `ShelfLife_Visual_${ExportUtils.getTimestamp()}.html`, "text/html;charset=utf-8", specificFolder);
+                ExportUtils.download(html, `ShelfLife_Visual_${ExportUtils.getTimestamp()}.html`, "text/html;charset=utf-8", specificFolder, specificBase);
             }
         };
 
@@ -1008,10 +1013,13 @@
                     const allBooks = await db.books.toArray();
                     const now = new Date();
                     const ts = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '_' + String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0') + '-' + String(now.getSeconds()).padStart(2, '0');
+
                     const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
+                    const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
+                    const targetDir = Directory[baseStr] || Directory.Documents;
 
                     // Ensure Folder
-                    try { await Filesystem.mkdir({ path: `Documents/${folder}`, directory: Directory.External, recursive: true }); } catch (e) { }
+                    try { await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true }); } catch (e) { }
 
                     const TARGET_SIZE = 9 * 1024 * 1024; // 9MB safe limit for chunks
                     let part = 1;
@@ -1023,9 +1031,9 @@
                         if (currentSize + s.length > TARGET_SIZE && currentChunk.length > 0) {
                             const fname = `ShelfLife_Part${part}_${ts}.json`;
                             await Filesystem.writeFile({
-                                path: `Documents/${folder}/${fname}`,
+                                path: `${folder}/${fname}`,
                                 data: JSON.stringify(currentChunk),
-                                directory: Directory.External,
+                                directory: targetDir,
                                 encoding: Encoding.UTF8
                             });
                             part++;
@@ -1039,14 +1047,14 @@
                     if (currentChunk.length > 0) {
                         const fname = `ShelfLife_Part${part}_${ts}.json`;
                         await Filesystem.writeFile({
-                            path: `Documents/${folder}/${fname}`,
+                            path: `${folder}/${fname}`,
                             data: JSON.stringify(currentChunk),
-                            directory: Directory.External,
+                            directory: targetDir,
                             encoding: Encoding.UTF8
                         });
                     }
 
-                    alert(`Backup Complete!\nSaved ${part} file(s) to:\nDocuments/${folder}/`);
+                    alert(`Backup Complete!\nSaved ${part} file(s) to:\n${baseStr}/${folder}/`);
                 } catch (e) {
                     alert("Backup Error: " + e.message);
                 }
@@ -1058,10 +1066,12 @@
                 try {
                     const { Filesystem } = window.Capacitor.Plugins;
                     const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
+                    const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
+                    const targetDir = Directory[baseStr] || Directory.Documents;
 
                     const ret = await Filesystem.readdir({
-                        path: `Documents/${folder}`,
-                        directory: Directory.External
+                        path: folder,
+                        directory: targetDir
                     }).catch(e => ({ files: [] }));
 
                     const groups = {};
@@ -1076,7 +1086,7 @@
                     });
 
                     const choices = Object.keys(groups).sort().reverse();
-                    if (choices.length === 0) { alert(`No backups found in Documents/${folder}`); return; }
+                    if (choices.length === 0) { alert(`No backups found in ${baseStr}/${folder}`); return; }
 
                     const selection = prompt("Found Backups (YYYY-MM-DD_HH-mm-ss):\n" + choices.map((c, i) => `${i + 1}. ${c} (${groups[c]} parts)`).join('\n') + "\n\nEnter number to restore:");
                     if (!selection) return;
@@ -1093,8 +1103,8 @@
                     let count = 0;
                     for (const f of fileList) {
                         const c = await Filesystem.readFile({
-                            path: `Documents/${folder}/${f.name}`,
-                            directory: Directory.External,
+                            path: `${folder}/${f.name}`,
+                            directory: targetDir,
                             encoding: Encoding.UTF8
                         });
                         const chunkData = JSON.parse(c.data);
@@ -1120,21 +1130,31 @@
                     <div className="bg-white p-4 rounded-xl shadow border border-blue-100">
                         <h3 className="font-bold mb-3 text-blue-800">Reports</h3>
 
-                        {/* EXPORT FOLDER SETTING */}
-                        <div className="flex gap-2 mb-3 items-center bg-blue-50 p-2 rounded">
-                            <label className="text-[10px] font-bold text-blue-800">Export To:</label>
-                            <input
-                                className="flex-1 p-1 text-xs border rounded"
-                                placeholder="ShelfLife_Exports"
-                                defaultValue={localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports'}
-                                onBlur={(e) => localStorage.setItem('shelfLife_exportFolder', e.target.value || 'ShelfLife_Exports')}
-                            />
+                        {/* EXPORT SETTINGS */}
+                        <div className="mb-3 bg-blue-50 p-2 rounded">
+                            <label className="text-[10px] font-bold text-blue-800 uppercase block mb-1">Export Location</label>
+                            <div className="flex gap-2">
+                                <select
+                                    className="p-1 text-xs border rounded bg-white"
+                                    defaultValue={localStorage.getItem('shelfLife_exportBase') || 'DOCUMENTS'}
+                                    onChange={(e) => localStorage.setItem('shelfLife_exportBase', e.target.value)}
+                                >
+                                    <option value="DOCUMENTS">Documents/</option>
+                                    <option value="EXTERNAL_STORAGE">External/</option>
+                                </select>
+                                <input
+                                    className="flex-1 p-1 text-xs border rounded"
+                                    placeholder="ShelfLife_Exports"
+                                    defaultValue={localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports'}
+                                    onBlur={(e) => localStorage.setItem('shelfLife_exportFolder', e.target.value || 'ShelfLife_Exports')}
+                                />
+                            </div>
                         </div>
 
                         <div className="space-y-2">
-                            <button onClick={() => ExportUtils.htmlText(books, 'Mix', 'Library Inventory', localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="List" /> HTML Text Report</button>
-                            <button onClick={() => ExportUtils.htmlVisual(books, 'Mix', 'Visual Catalogue', localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Image" /> HTML Visual Catalogue</button>
-                            <button onClick={() => ExportUtils.csv(books, 'Mix', localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Download" /> Export CSV</button>
+                            <button onClick={() => ExportUtils.htmlText(books, 'Mix', 'Library Inventory', localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports', localStorage.getItem('shelfLife_exportBase') || 'DOCUMENTS')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="List" /> HTML Text Report</button>
+                            <button onClick={() => ExportUtils.htmlVisual(books, 'Mix', 'Visual Catalogue', localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports', localStorage.getItem('shelfLife_exportBase') || 'DOCUMENTS')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Image" /> HTML Visual Catalogue</button>
+                            <button onClick={() => ExportUtils.csv(books, 'Mix', localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports', localStorage.getItem('shelfLife_exportBase') || 'DOCUMENTS')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Download" /> Export CSV</button>
                         </div>
                     </div>
 
@@ -1142,14 +1162,20 @@
                         <h3 className="font-bold mb-3 text-orange-800">Data Management</h3>
                         {lastRestore && <div className="text-xs text-gray-500 mb-3 bg-gray-50 p-2 rounded border">Last Restored: <b>{lastRestore.name}</b><br />{lastRestore.date}</div>}
 
-                        {/* SAF STORAGE SETTINGS - NOW ACTIVE */}
+                        {/* DATA SYNC SETTINGS */}
                         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                             <h4 className="font-bold text-xs uppercase text-yellow-800 mb-2">Native Data Sync</h4>
                             <p className="text-[10px] text-yellow-700 mb-2">Save database backups directly to your device.</p>
 
-                            {/* FOLDER SETTING */}
                             <div className="flex gap-2 mb-2 items-center">
-                                <label className="text-[10px] font-bold text-yellow-800">Folder:</label>
+                                <select
+                                    className="p-1 text-xs border rounded bg-white text-yellow-900"
+                                    defaultValue={localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS'}
+                                    onChange={(e) => localStorage.setItem('shelfLife_backupBase', e.target.value)}
+                                >
+                                    <option value="DOCUMENTS">Documents/</option>
+                                    <option value="EXTERNAL_STORAGE">External/</option>
+                                </select>
                                 <input
                                     className="flex-1 p-1 text-xs border rounded"
                                     placeholder="ShelfLife_Backups"
@@ -1160,6 +1186,7 @@
 
                             {/* CHUNKED BACKUP */}
                             <button onClick={performChunkedBackup} className="w-full py-2 bg-yellow-600 text-white rounded text-xs font-bold mb-2">Save Split Backup (Device)</button>
+
 
                             {/* FOLDER RESTORE */}
                             <button onClick={performNativeRestore} className="w-full py-2 bg-yellow-700 text-white rounded text-xs font-bold">Restore from Device Folder</button>
