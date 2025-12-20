@@ -180,49 +180,58 @@
         };
 
         const ExportUtils = {
-            download: (content, name, mimeType) => {
-                // Use Data URI for WebView compatibility
-                try {
-                    // Check if content is already base64 (for images) or text
-                    let dataUri = '';
-                    if (mimeType === 'application/json' || mimeType.includes('text')) {
-                        const base64 = btoa(unescape(encodeURIComponent(content)));
-                        dataUri = `data:${mimeType};base64,${base64}`;
-                    } else {
-                        dataUri = content; // Assuming content is already a Data URL if not text
-                    }
-
-                    const a = document.createElement('a');
-                    a.href = dataUri;
-                    a.download = name;
-                    document.body.appendChild(a);
-                    a.click();
-                    setTimeout(() => document.body.removeChild(a), 100);
-                } catch (e) {
-                    alert("Export failed: " + e.message);
-                }
-            },
             getTimestamp: () => {
                 const now = new Date();
                 return now.toISOString().replace(/[:.]/g, '-').slice(0, 16);
             },
+            download: async (content, name, mimeType) => {
+                if (window.Capacitor) {
+                    try {
+                        const { Filesystem, Directory, Encoding } = window.Capacitor.Plugins;
+                        await Filesystem.writeFile({
+                            path: `Documents/${name}`,
+                            data: content,
+                            directory: Directory.External,
+                            encoding: Encoding.UTF8
+                        });
+                        alert(`Saved to Documents/${name}`);
+                    } catch (e) {
+                        // Fallback to clipboard if write fails
+                        console.error(e);
+                        alert("Save failed. " + e.message);
+                    }
+                } else {
+                    // Browser Download
+                    try {
+                        let dataUri = '';
+                        if (mimeType === 'application/json' || mimeType.includes('text')) {
+                            const base64 = btoa(unescape(encodeURIComponent(content)));
+                            dataUri = `data:${mimeType};base64,${base64}`;
+                        } else {
+                            dataUri = content;
+                        }
+                        const a = document.createElement('a');
+                        a.href = dataUri;
+                        a.download = name;
+                        document.body.appendChild(a);
+                        a.click();
+                        setTimeout(() => document.body.removeChild(a), 100);
+                    } catch (e) {
+                        alert("Export failed: " + e.message);
+                    }
+                }
+            },
             csv: (books) => {
-                // Find max number of tags
                 const maxTags = books.reduce((max, b) => Math.max(max, (b.tags || []).length), 0);
-
-                // Generate Header
                 let header = "Title,Author,Publisher,Year,Pages,Condition,Price,Currency,Owner,Location,ISBN,Status";
                 for (let i = 1; i <= maxTags; i++) header += `,Tag_${i}`;
                 header += "\n";
-
-                // Generate Rows
                 const rows = books.map(b => {
-                    const core = `"${b.title}","${b.author}","${b.publisher}","${b.pub_year}","${b.page_count || ''}","${b.condition || ''}","${b.price}","${b.currency || ''}","${b.owner}","${b.building} ${b.shelf}","${b.isbn || ''}","${b.status}"`;
+                    const core = `"${(b.title || '').replace(/"/g, '""')}","${(b.author || '').replace(/"/g, '""')}","${(b.publisher || '').replace(/"/g, '""')}","${b.pub_year || ''}","${b.page_count || ''}","${b.condition || ''}","${b.price || ''}","${b.currency || ''}","${b.owner || ''}","${b.building || ''} ${b.shelf || ''}","${b.isbn || ''}","${b.status || ''}"`;
                     const tags = (b.tags || []);
-                    const tagCells = Array.from({ length: maxTags }, (_, i) => `"${tags[i] || ''}"`).join(',');
+                    const tagCells = Array.from({ length: maxTags }, (_, i) => `"${(tags[i] || '').replace(/"/g, '""')}"`).join(',');
                     return `${core},${tagCells}`;
                 }).join('\n');
-
                 ExportUtils.download("\uFEFF" + header + rows, `ShelfLife_Export_${ExportUtils.getTimestamp()}.csv`, "text/csv;charset=utf-8");
             },
             htmlText: (books, title = "Library Inventory") => {
