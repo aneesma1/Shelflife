@@ -199,12 +199,12 @@
                 const now = new Date();
                 return now.toISOString().replace(/[:.]/g, '-').slice(0, 16);
             },
-            download: async (content, name, mimeType) => {
+            download: async (content, name, mimeType, specificFolder = null) => {
                 if (window.Capacitor) {
                     try {
                         const { Filesystem } = window.Capacitor.Plugins;
-                        // Use user preference or default
-                        const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
+                        // Use specific folder if provided, else backup preference, else default
+                        const folder = specificFolder || localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
 
                         // Ensure folder exists
                         try {
@@ -251,7 +251,7 @@
                     }
                 }
             },
-            csv: (books) => {
+            csv: (books, type, specificFolder = null) => {
                 const maxTags = books.reduce((max, b) => Math.max(max, (b.tags || []).length), 0);
                 let header = "Title,Author,Publisher,Year,Pages,Condition,Price,Currency,Owner,Location,ISBN,Status";
                 for (let i = 1; i <= maxTags; i++) header += `,Tag_${i}`;
@@ -262,15 +262,15 @@
                     const tagCells = Array.from({ length: maxTags }, (_, i) => `"${(tags[i] || '').replace(/"/g, '""')}"`).join(',');
                     return `${core},${tagCells}`;
                 }).join('\n');
-                ExportUtils.download("\uFEFF" + header + rows, `ShelfLife_Export_${ExportUtils.getTimestamp()}.csv`, "text/csv;charset=utf-8");
+                ExportUtils.download("\uFEFF" + header + rows, `ShelfLife_Export_${ExportUtils.getTimestamp()}.csv`, "text/csv;charset=utf-8", specificFolder);
             },
-            htmlText: (books, title = "Library Inventory") => {
+            htmlText: (books, type, title = "Library Inventory", specificFolder = null) => {
                 let html = `<html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;padding:20px;} table{width:100%;border-collapse:collapse;} th,td{border:1px solid #ddd;padding:8px;} th{background:#f3f3f3;} tr:nth-child(even){background:#f9f9f9;}</style></head><body><h1>${title}</h1><table><tr><th>Title</th><th>Author</th><th>Publisher</th><th>Year</th><th>Loc</th><th>Cond</th><th>Price</th></tr>${books.map(b => `<tr><td>${b.title}</td><td>${b.author}</td><td>${b.publisher}</td><td>${b.pub_year}</td><td>${b.building} ${b.shelf}</td><td>${b.condition}</td><td>${b.currency || ''} ${b.price}</td></tr>`).join('')}</table></body></html>`;
-                ExportUtils.download(html, `ShelfLife_List_${ExportUtils.getTimestamp()}.html`, "text/html;charset=utf-8");
+                ExportUtils.download(html, `ShelfLife_List_${ExportUtils.getTimestamp()}.html`, "text/html;charset=utf-8", specificFolder);
             },
-            htmlVisual: (books, title = "Visual Catalogue") => {
+            htmlVisual: (books, type, title = "Visual Catalogue", specificFolder = null) => {
                 let html = `<html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;padding:20px;} .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:20px;} .card{border:1px solid #ddd;padding:10px;text-align:center;border-radius:8px;} img{width:100%;height:150px;object-fit:cover;margin-bottom:10px;border-radius:4px;} .meta{font-size:12px;color:#666;}</style></head><body><h1>${title}</h1><div class="grid">${books.map(b => `<div class="card">${b.front ? `<img src="${b.front}"/>` : ''}<b>${b.title}</b><br><small>${b.author}</small><br><span class="meta">${b.publisher} • ${b.pub_year}</span></div>`).join('')}</div></body></html>`;
-                ExportUtils.download(html, `ShelfLife_Visual_${ExportUtils.getTimestamp()}.html`, "text/html;charset=utf-8");
+                ExportUtils.download(html, `ShelfLife_Visual_${ExportUtils.getTimestamp()}.html`, "text/html;charset=utf-8", specificFolder);
             }
         };
 
@@ -1119,10 +1119,22 @@
 
                     <div className="bg-white p-4 rounded-xl shadow border border-blue-100">
                         <h3 className="font-bold mb-3 text-blue-800">Reports</h3>
+
+                        {/* EXPORT FOLDER SETTING */}
+                        <div className="flex gap-2 mb-3 items-center bg-blue-50 p-2 rounded">
+                            <label className="text-[10px] font-bold text-blue-800">Export To:</label>
+                            <input
+                                className="flex-1 p-1 text-xs border rounded"
+                                placeholder="ShelfLife_Exports"
+                                defaultValue={localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports'}
+                                onBlur={(e) => localStorage.setItem('shelfLife_exportFolder', e.target.value || 'ShelfLife_Exports')}
+                            />
+                        </div>
+
                         <div className="space-y-2">
-                            <button onClick={() => ExportUtils.htmlText(books, 'Mix')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="List" /> HTML Text Report</button>
-                            <button onClick={() => ExportUtils.htmlVisual(books, 'Mix')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Image" /> HTML Visual Catalogue</button>
-                            <button onClick={() => ExportUtils.csv(books, 'Mix')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Download" /> Export CSV</button>
+                            <button onClick={() => ExportUtils.htmlText(books, 'Mix', 'Library Inventory', localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="List" /> HTML Text Report</button>
+                            <button onClick={() => ExportUtils.htmlVisual(books, 'Mix', 'Visual Catalogue', localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Image" /> HTML Visual Catalogue</button>
+                            <button onClick={() => ExportUtils.csv(books, 'Mix', localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Download" /> Export CSV</button>
                         </div>
                     </div>
 
