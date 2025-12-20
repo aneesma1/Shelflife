@@ -1008,20 +1008,116 @@
                         <h3 className="font-bold mb-3 text-orange-800">Data Management</h3>
                         {lastRestore && <div className="text-xs text-gray-500 mb-3 bg-gray-50 p-2 rounded border">Last Restored: <b>{lastRestore.name}</b><br />{lastRestore.date}</div>}
 
-                        {/* SAF STORAGE SETTINGS */}
+                        {/* SAF STORAGE SETTINGS - NOW ACTIVE */}
                         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                            <h4 className="font-bold text-xs uppercase text-yellow-800 mb-2">Storage Location</h4>
-                            <p className="text-[10px] text-yellow-700 mb-2">Keep data safe from uninstall by choosing a folder.</p>
-                            <button onClick={() => {
-                                // MOCK SAF TRIGGER
-                                if (window.Capacitor) {
-                                    // Actual Native Call Implementation would go here
-                                    // e.g. Plugins.Filesystem.pickDirectory() ...
-                                    alert("Redirecting to Android Storage Picker (SAF)...");
-                                } else {
-                                    alert("On Android, this opens the folder picker to select a permanent text/backup location.");
+                            <h4 className="font-bold text-xs uppercase text-yellow-800 mb-2">Data Sync</h4>
+                            <p className="text-[10px] text-yellow-700 mb-2">Split-safe backups to 'Documents/ShelfLife_Backups'.</p>
+
+                            {/* CHUNKED BACKUP */}
+                            <button onClick={async () => {
+                                if (!window.Capacitor) { alert("Feature requires Android App."); return; }
+                                try {
+                                    const { Filesystem, Directory, Encoding } = window.Capacitor.Plugins;
+                                    const allBooks = await db.books.toArray();
+
+                                    const now = new Date();
+                                    const ts = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '_' + String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0') + '-' + String(now.getSeconds()).padStart(2, '0');
+
+                                    const TARGET_SIZE = 10 * 1024 * 1024;
+                                    let part = 1;
+                                    let currentChunk = [];
+                                    let currentSize = 0;
+
+                                    for (const book of allBooks) {
+                                        const s = JSON.stringify(book);
+                                        if (currentSize + s.length > TARGET_SIZE && currentChunk.length > 0) {
+                                            const fname = `ShelfLife_Part${part}_${ts}.json`;
+                                            await Filesystem.writeFile({
+                                                path: `Documents/ShelfLife_Backups/${fname}`,
+                                                data: JSON.stringify(currentChunk),
+                                                directory: Directory.External,
+                                                encoding: Encoding.UTF8,
+                                                recursive: true
+                                            });
+                                            part++;
+                                            currentChunk = [];
+                                            currentSize = 0;
+                                        }
+                                        currentChunk.push(book);
+                                        currentSize += s.length;
+                                    }
+
+                                    if (currentChunk.length > 0) {
+                                        const fname = `ShelfLife_Part${part}_${ts}.json`;
+                                        await Filesystem.writeFile({
+                                            path: `Documents/ShelfLife_Backups/${fname}`,
+                                            data: JSON.stringify(currentChunk),
+                                            directory: Directory.External,
+                                            encoding: Encoding.UTF8,
+                                            recursive: true
+                                        });
+                                    }
+
+                                    alert(`Backup Complete! Saved ${part} part(s) to Documents/ShelfLife_Backups/`);
+                                } catch (e) {
+                                    alert("Backup Error: " + e.message);
                                 }
-                            }} className="w-full py-2 bg-yellow-600 text-white rounded text-xs font-bold">Select Permanent Data Folder</button>
+                            }} className="w-full py-2 bg-yellow-600 text-white rounded text-xs font-bold mb-2">Save Split Backup (Device)</button>
+
+                            {/* FOLDER RESTORE */}
+                            <button onClick={async () => {
+                                if (!window.Capacitor) { alert("Feature requires Android App."); return; }
+                                try {
+                                    const { Filesystem, Directory, Encoding } = window.Capacitor.Plugins;
+                                    const ret = await Filesystem.readdir({
+                                        path: 'Documents/ShelfLife_Backups',
+                                        directory: Directory.External
+                                    });
+
+                                    const groups = {};
+                                    ret.files.forEach(f => {
+                                        const name = f.name;
+                                        const m = name.match(/ShelfLife_Part\d+_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json/);
+                                        if (m) {
+                                            const ts = m[1];
+                                            if (!groups[ts]) groups[ts] = 0;
+                                            groups[ts]++;
+                                        }
+                                    });
+
+                                    const choices = Object.keys(groups).sort().reverse();
+                                    if (choices.length === 0) { alert("No backups found"); return; }
+
+                                    const selection = prompt("Found Backups:\n" + choices.map((c, i) => `${i + 1}. ${c} (${groups[c]} parts)`).join('\n') + "\n\nEnter number to restore:");
+                                    if (!selection) return;
+                                    const index = parseInt(selection) - 1;
+                                    if (isNaN(index) || index < 0 || index >= choices.length) return;
+
+                                    const targetTs = choices[index];
+                                    if (!confirm(`Restore ${targetTs}? Wipes data.`)) return;
+
+                                    await db.books.clear();
+                                    const fileList = ret.files.filter(f => f.name.includes(targetTs));
+
+                                    let count = 0;
+                                    for (const f of fileList) {
+                                        const c = await Filesystem.readFile({
+                                            path: `Documents/ShelfLife_Backups/${f.name}`,
+                                            directory: Directory.External,
+                                            encoding: Encoding.UTF8
+                                        });
+                                        const chunkData = JSON.parse(c.data);
+                                        await db.books.bulkAdd(chunkData);
+                                        count += chunkData.length;
+                                    }
+
+                                    alert(`Restored ${count} books.`);
+                                    window.location.reload();
+
+                                } catch (e) {
+                                    alert("Restore Error: " + e.message);
+                                }
+                            }} className="w-full py-2 bg-yellow-700 text-white rounded text-xs font-bold">Restore from Device Folder</button>
                         </div>
 
                         <div className="space-y-2">
