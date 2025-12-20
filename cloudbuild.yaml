@@ -7,7 +7,7 @@ steps:
   # 1. Install Dependencies
   - name: 'node:18'
     entrypoint: 'npm'
-    args: ['install']
+    args: ['install', '--legacy-peer-deps']
 
   # 2. Prepare Web Assets (Create www folder)
   - name: 'ubuntu'
