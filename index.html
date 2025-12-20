@@ -1211,21 +1211,36 @@
                 l();
                 setInterval(l, 1000);
 
-                // Android Back Button Logic
+                // Android Back Button & Permissions Logic
                 try {
                     if (window.Capacitor) {
-                        /* 
-                           // Native Implementation (Commented for reference, will be active in build)
-                           // import { App } from '@capacitor/app';
-                           // App.addListener('backButton', ({ canGoBack }) => {
-                           //     if (canGoBack) window.history.back(); else {
-                           //          if (confirm('Exit ShelfLife?')) App.exitApp();
-                           //     }
-                           // });
-                        */
-                        console.log("Capacitor Back Button Listener Ready");
+                        const { App } = window.Capacitor.Plugins;
+                        // Handle Back Button
+                        App.addListener('backButton', ({ canGoBack }) => {
+                            if (canGoBack) {
+                                window.history.back();
+                            } else {
+                                if (confirm('Do you want to exit ShelfLife?')) {
+                                    App.exitApp();
+                                }
+                            }
+                        });
+
+                        // Request Permissions
+                        (async () => {
+                            try {
+                                // Camera
+                                // Note: html5-qrcode might handle this, but explicit request helps
+                                // Filesystem (for backups)
+                                // Simple read/write check
+                                const { Filesystem, Directory, Encoding } = window.Capacitor.Plugins;
+                                await Filesystem.readdir({ path: 'Documents', directory: Directory.External }).catch(() => { });
+                            } catch (e) { console.log("Perms check silent fail", e); }
+                        })();
+
+                        console.log("Native listeners active");
                     }
-                } catch (e) { }
+                } catch (e) { console.error("Native setup error", e); }
 
             }, []);
 
