@@ -1,0 +1,13 @@
+{
+    "appId": "com.shelflife.app",
+    "appName": "ShelfLife",
+    "webDir": "www",
+    "server": {
+        "androidScheme": "https"
+    },
+    "plugins": {
+        "CapacitorCookies": {
+            "enabled": true
+        }
+    }
+}

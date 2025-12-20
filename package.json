@@ -1,0 +1,17 @@
+{
+  "name": "shelflife-pwa",
+  "version": "1.0.0",
+  "description": "ShelfLife PWA to APK",
+  "scripts": {
+    "build": "echo 'No build step for single file PWA'"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/app": "^6.0.0",
+    "@capacitor/filesystem": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.0.0"
+  }
+}

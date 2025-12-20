@@ -1,0 +1,38 @@
+steps:
+  # 1. Install Dependencies
+  - name: 'node:18'
+    entrypoint: 'npm'
+    args: ['install']
+
+  # 2. Prepare Web Assets (Create www folder)
+  - name: 'ubuntu'
+    args: ['bash', '-c', 'mkdir -p www && cp index.html www/']
+
+  # 3. Add Android Platform (Generates android/ folder)
+  - name: 'node:18'
+    entrypoint: 'npx'
+    args: ['cap', 'add', 'android']
+
+  # 4. Sync Assets (Copies www to android/app/src/main/assets/public)
+  - name: 'node:18'
+    entrypoint: 'npx'
+    args: ['cap', 'sync', 'android']
+
+  # 5. Build APK
+  # Using a community image that includes Android SDK & Gradle
+  - name: 'reactnativecommunity/react-native-android:latest'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        cd android
+        chmod +x gradlew
+        ./gradlew assembleDebug
+
+options:
+  machineType: 'E2_HIGHCPU_8'
+
+artifacts:
+  objects:
+    location: 'gs://$PROJECT_ID-build-artifacts/'
+    paths: ['android/app/build/outputs/apk/debug/app-debug.apk']

@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#2563eb">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>ShelfLife Ultimate</title>
+
+    <!-- PWA MANIFEST (Embedded) -->
+    <link rel="manifest"
+        href="data:application/manifest+json;base64,ewogICAgIm5hbWUiOiAiU2hlbGZMaWZlIFVsdGltYXRlIiwKICAgICJzaG9ydF9uYW1lIjogIlNoZWxZTGlmZSIsCiAgICAic3RhcnRfdXJsIjogIi4iLAogICAgImRpc3BsYXkiOiAic3RhbmRhbG9uZSIsCiAgICAiYmFja2dyb3VuZF9jb2xvciI6ICIjZjNmNGY2IiwKICAgICJ0aGVtZV9jb2xvciI6ICIjMjU2M2ViIiwKICAgICJpY29ucyI6IFtdCn0=">
+
+    <!-- CORE LIBRARIES -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.js"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+    <!-- FONTS -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+Malayalam&family=Noto+Sans+Arabic&family=Noto+Sans+Devanagari&display=swap"
+        rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Noto Sans', sans-serif;
+            background-color: #f3f4f6;
+            overscroll-behavior: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .font-ml {
+            font-family: 'Noto Sans Malayalam', sans-serif;
+        }
+
+        .font-ar {
+            font-family: 'Noto Sans Arabic', sans-serif;
+        }
+
+        .font-hi {
+            font-family: 'Noto Sans Devanagari', sans-serif;
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .pie-chart {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: conic-gradient(var(--pie-gradient));
+        }
+
+        /* Pull to Refresh Spinner */
+        #ptr-spinner {
+            position: fixed;
+            top: -50px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 40px;
+            height: 40px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: top 0.3s ease;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #2563eb;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ptr-spinner">
+        <div className="spinner"></div>
+    </div>
+    <div id="root"></div>
+
+    <script>
+        // --- SERVICE WORKER REGISTRATION (Robust for PWA) ---
+        if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost')) {
+            const swCode = `
+        const CACHE_NAME = 'shelflife-v2';
+        const FILES_TO_CACHE = [
+            './',
+            'https://unpkg.com/react@18/umd/react.development.js',
+            'https://unpkg.com/react-dom@18/umd/react-dom.development.js',
+            'https://unpkg.com/@babel/standalone/babel.min.js',
+            'https://cdn.tailwindcss.com',
+            'https://unpkg.com/dexie@3.2.4/dist/dexie.js',
+            'https://unpkg.com/html5-qrcode',
+            'https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+Malayalam&family=Noto+Sans+Arabic&family=Noto+Sans+Devanagari&display=swap'
+        ];
+        
+        self.addEventListener('install', (evt) => {
+            evt.waitUntil(
+                caches.open(CACHE_NAME).then((cache) => {
+                    return cache.addAll(FILES_TO_CACHE).catch(err => console.log('Cache error:', err));
+                })
+            );
+            self.skipWaiting();
+        });
+
+        self.addEventListener('activate', (evt) => {
+            evt.waitUntil(self.clients.claim());
+        });
+
+        self.addEventListener('fetch', (evt) => {
+            evt.respondWith(
+                caches.match(evt.request).then((resp) => {
+                    return resp || fetch(evt.request).catch(() => new Response("Offline"));
+                })
+            );
+        });
+    `;
+
+            // Create blob URL for SW
+            const blob = new Blob([swCode], { type: 'application/javascript' });
+            const swUrl = URL.createObjectURL(blob);
+
+            navigator.serviceWorker.register(swUrl)
+                .then((reg) => console.log('SW Registered'))
+                .catch((err) => console.log('SW Failed:', err));
+        }
+    </script>
+
+    <script type="text/babel">
+
+        // ==========================================
+        // 1. UTILITIES
+        // ==========================================
+
+        const ImageUtils = {
+            process: (file, width = 600, quality = 0.70) => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.src = e.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let w = img.width, h = img.height;
+                        if (w > width) { h *= width / w; w = width; }
+                        canvas.width = w; canvas.height = h;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, w, h);
+                        resolve(canvas.toDataURL('image/webp', quality));
+                    };
+                    img.onerror = reject;
+                };
+                reader.onerror = reject;
+            })
+        };
+
+        const ExportUtils = {
+            download: (content, name, mimeType) => {
+                // Use Data URI for WebView compatibility
+                try {
+                    // Check if content is already base64 (for images) or text
+                    let dataUri = '';
+                    if (mimeType === 'application/json' || mimeType.includes('text')) {
+                        const base64 = btoa(unescape(encodeURIComponent(content)));
+                        dataUri = `data:${mimeType};base64,${base64}`;
+                    } else {
+                        dataUri = content; // Assuming content is already a Data URL if not text
+                    }
+
+                    const a = document.createElement('a');
+                    a.href = dataUri;
+                    a.download = name;
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => document.body.removeChild(a), 100);
+                } catch (e) {
+                    alert("Export failed: " + e.message);
+                }
+            },
+            getTimestamp: () => {
+                const now = new Date();
+                return now.toISOString().replace(/[:.]/g, '-').slice(0, 16);
+            },
+            csv: (books) => {
+                // Find max number of tags
+                const maxTags = books.reduce((max, b) => Math.max(max, (b.tags || []).length), 0);
+
+                // Generate Header
+                let header = "Title,Author,Publisher,Year,Pages,Condition,Price,Currency,Owner,Location,ISBN,Status";
+                for (let i = 1; i <= maxTags; i++) header += `,Tag_${i}`;
+                header += "\n";
+
+                // Generate Rows
+                const rows = books.map(b => {
+                    const core = `"${b.title}","${b.author}","${b.publisher}","${b.pub_year}","${b.page_count || ''}","${b.condition || ''}","${b.price}","${b.currency || ''}","${b.owner}","${b.building} ${b.shelf}","${b.isbn || ''}","${b.status}"`;
+                    const tags = (b.tags || []);
+                    const tagCells = Array.from({ length: maxTags }, (_, i) => `"${tags[i] || ''}"`).join(',');
+                    return `${core},${tagCells}`;
+                }).join('\n');
+
+                ExportUtils.download("\uFEFF" + header + rows, `ShelfLife_Export_${ExportUtils.getTimestamp()}.csv`, "text/csv;charset=utf-8");
+            },
+            htmlText: (books, title = "Library Inventory") => {
+                let html = `<html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;padding:20px;} table{width:100%;border-collapse:collapse;} th,td{border:1px solid #ddd;padding:8px;} th{background:#f3f3f3;} tr:nth-child(even){background:#f9f9f9;}</style></head><body><h1>${title}</h1><table><tr><th>Title</th><th>Author</th><th>Publisher</th><th>Year</th><th>Loc</th><th>Cond</th><th>Price</th></tr>${books.map(b => `<tr><td>${b.title}</td><td>${b.author}</td><td>${b.publisher}</td><td>${b.pub_year}</td><td>${b.building} ${b.shelf}</td><td>${b.condition}</td><td>${b.currency || ''} ${b.price}</td></tr>`).join('')}</table></body></html>`;
+                ExportUtils.download(html, `ShelfLife_List_${ExportUtils.getTimestamp()}.html`, "text/html;charset=utf-8");
+            },
+            htmlVisual: (books, title = "Visual Catalogue") => {
+                let html = `<html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;padding:20px;} .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:20px;} .card{border:1px solid #ddd;padding:10px;text-align:center;border-radius:8px;} img{width:100%;height:150px;object-fit:cover;margin-bottom:10px;border-radius:4px;} .meta{font-size:12px;color:#666;}</style></head><body><h1>${title}</h1><div class="grid">${books.map(b => `<div class="card">${b.front ? `<img src="${b.front}"/>` : ''}<b>${b.title}</b><br><small>${b.author}</small><br><span class="meta">${b.publisher} • ${b.pub_year}</span></div>`).join('')}</div></body></html>`;
+                ExportUtils.download(html, `ShelfLife_Visual_${ExportUtils.getTimestamp()}.html`, "text/html;charset=utf-8");
+            }
+        };
+
+        const ICONS = {
+            Library: `<path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/>`,
+            PlusSquare: `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 12h8"/><path d="M12 8v8"/>`,
+            BarChart2: `<line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/>`,
+            Settings: `<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>`,
+            Search: `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>`,
+            Edit3: `<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>`,
+            Book: `<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>`,
+            Camera: `<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>`,
+            FileText: `<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>`,
+            List: `<line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>`,
+            Image: `<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>`,
+            Download: `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>`,
+            X: `<path d="M18 6 6 18"/><path d="m6 6 12 12"/>`,
+            MapPin: `<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>`,
+            AlertCircle: `<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>`,
+            Trash2: `<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>`,
+            Eye: `<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>`,
+            Plus: `<path d="M5 12h14"/><path d="M12 5v14"/>`,
+            Upload: `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>`,
+            Filter: `<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>`,
+            Barcode: `<path d="M3 5v14"/><path d="M8 5v14"/><path d="M12 5v14"/><path d="M17 5v14"/><path d="M21 5v14"/>`,
+            CheckSquare: `<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>`,
+            Mic: `<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="23"/><line x1="8" x2="16" y1="23" y2="23"/>`,
+            Grid: `<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>`,
+            LayoutList: `<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 4h7"/><path d="M14 9h7"/><path d="M14 15h7"/><path d="M14 20h7"/>`,
+            Merge: `<path d="m8 6 4-4 4 4"/><path d="M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22"/><path d="m20 22-5-5"/>`
+        };
+
+        const Icon = ({ name, size = 20, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`lucide lucide-${name} ${className}`} dangerouslySetInnerHTML={{ __html: ICONS[name] || ICONS['Book'] }} />
+        );
+
+        // --- TRANSLITERATION ---
+        const TRANSLITERATE_MAP = {
+            'അ': 'a', 'आ': 'aa', 'ഇ': 'i', 'ഈ': 'ee', 'ഉ': 'u', 'ഊ': 'oo', 'എ': 'e', 'ഏ': 'ea', 'ഐ': 'ai', 'ഒ': 'o', 'ഓ': 'oa', 'ഔ': 'au', 'ം': 'm', 'ക': 'ka', 'ഖ': 'kha', 'ഗ': 'ga', 'ഘ': 'gha', 'ങ': 'nga', 'ച': 'cha', 'ഛ': 'chha', 'ജ': 'ja', 'ഝ': 'jha', 'ഞ': 'nja', 'ട': 'ta', 'ഠ': 'ttha', 'ഡ': 'da', 'ഢ': 'ddha', 'ണ': 'na', 'ത': 'tha', 'ഥ': 'thha', 'ദ': 'da', 'ധ': 'dha', 'ന': 'na', 'പ': 'pa', 'ഫ': 'pha', 'ബ': 'ba', 'ഭ': 'bha', 'മ': 'ma', 'യ': 'ya', 'ര': 'ra', 'ല': 'la', 'വ': 'va', 'ശ': 'sha', 'ഷ': 'sha', 'സ': 'sa', 'ഹ': 'ha', 'ള': 'la', 'ഴ': 'zha', 'റ': 'ra', 'अ': 'a', 'आ': 'aa', 'इ': 'i', 'ई': 'ee', 'उ': 'u', 'ऊ': 'oo', 'ए': 'e', 'ऐ': 'ai', 'ओ': 'o', 'औ': 'au', 'ं': 'n', 'क': 'ka', 'ख': 'kha', 'ग': 'ga', 'घ': 'gha', 'च': 'cha', 'छ': 'chha', 'ज': 'ja', 'झ': 'jha', 'ट': 'ta', 'ठ': 'ttha', 'ड': 'da', 'ढ': 'ddha', 'ण': 'na', 'त': 'tha', 'थ': 'thha', 'द': 'da', 'ध': 'dha', 'न': 'na', 'प': 'pa', 'फ': 'pha', 'ब': 'ba', 'भ': 'bha', 'म': 'ma', 'य': 'ya', 'र': 'ra', 'ल': 'la', 'व': 'va', 'श': 'sha', 'ष': 'sha', 'स': 'sa', 'ह': 'ha'
+        };
+        const transliterate = (text) => text.split('').map(char => TRANSLITERATE_MAP[char] || char).join('');
+
+        // ==========================================
+        // 2. DATABASE
+        // ==========================================
+        const db = new Dexie("ShelfLife_Final_v40");
+        db.version(1).stores({ books: "++id, title, phonetic, author, owner, publisher, language, building, shelf, status, date_added, isbn, page_count, condition, currency" });
+
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // --- 3. COMPONENTS ---
+
+        // AUTO-SUGGEST INPUT
+        const AutoSuggestInput = ({ label, value, onChange, field, placeholder }) => {
+            const [suggestions, setSuggestions] = useState([]);
+
+            useEffect(() => {
+                db.books.toArray().then(all => {
+                    const set = new Set(all.map(b => b[field]).filter(Boolean));
+                    setSuggestions([...set].sort());
+                });
+            }, [field]);
+
+            return (
+                <div className="relative">
+                    <label className="text-xs text-gray-500 font-bold">{label}</label>
+                    <input
+                        list={`list-${field}`}
+                        className="w-full p-3 border rounded-lg"
+                        value={value}
+                        onChange={onChange}
+                        placeholder={placeholder}
+                    />
+                    <datalist id={`list-${field}`}>
+                        {suggestions.map((s, i) => <option key={i} value={s} />)}
+                    </datalist>
+                </div>
+            );
+        };
+
+        // VOICE INPUT (Wrapped)
+        const VoiceInput = ({ label, value, onChange, onVoice, isListening, lang, type = "text", placeholder }) => {
+            return (
+                <div className="relative">
+                    <label className="text-xs text-gray-500 font-bold">{label}</label>
+                    <div className="relative">
+                        <input
+                            type={type}
+                            className="w-full p-3 border rounded-lg pr-10"
+                            placeholder={placeholder}
+                            value={value}
+                            onChange={onChange}
+                            lang={lang}
+                        />
+                        <button
+                            type="button"
+                            onClick={onVoice}
+                            className={`absolute right-2 top-2 p-1 rounded-full ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400'}`}
+                        >
+                            <Icon name="Mic" size={20} />
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        // BARCODE SCANNER
+        const BarcodeScanner = ({ onDetected, onClose }) => {
+            const [online, setOnline] = useState(navigator.onLine);
+
+            useEffect(() => {
+                window.addEventListener('online', () => setOnline(true));
+                window.addEventListener('offline', () => setOnline(false));
+
+                if (!window.Html5QrcodeScanner) return onClose();
+                const scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
+                scanner.render((t) => { scanner.clear(); onDetected(t); }, (e) => { });
+                return () => { try { scanner.clear(); } catch (e) { } };
+            }, []);
+
+            return (
+                <div className="fixed inset-0 bg-black z-50 flex flex-col">
+                    <div className="p-4 flex justify-between text-white bg-black/50 absolute top-0 w-full z-10 items-center">
+                        <span className="flex items-center gap-2">
+                            <div className={`w-3 h-3 rounded-full ${online ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                            {online ? 'Online' : 'Offline'}
+                        </span>
+                        <button onClick={onClose}><Icon name="X" /></button>
+                    </div>
+                    <div id="reader" className="flex-1 bg-white"></div>
+                </div>
+            );
+        };
+
+        // BOOK FORM
+        const BookForm = ({ book, onSave, onCancel, onBarcodeFound, globalCurrency }) => {
+            const [form, setForm] = useState(book ? { ...book, pages: book.pages || [] } : {
+                title: '', phonetic: '', author: '', owner: '', building: '', shelf: '', isbn: '',
+                price: '', currency: '₹', year: '', lang: 'en', tags: [], status: 'avail', page_count: '', condition: 'Good',
+                front: null, rear: null, thumb: null, pages: []
+            });
+            const [scanMode, setScanMode] = useState(false);
+            const [listeningField, setListeningField] = useState(null);
+
+            const handleImg = async (e, field) => {
+                const file = e.target.files && e.target.files[0];
+                if (file) {
+                    try {
+                        const res = await ImageUtils.process(file);
+                        setForm(prev => ({ ...prev, [field]: res }));
+                    } catch (err) { alert("Error: " + err); }
+                }
+            };
+
+            const handlePageAdd = async (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (file) {
+                    try {
+                        const res = await ImageUtils.process(file);
+                        setForm(f => ({ ...f, pages: [...(f.pages || []), res] }));
+                    } catch (err) { alert("Error: " + err); }
+                }
+            };
+
+            const handleBarcode = async (isbn) => {
+                setScanMode(false);
+                const exists = await db.books.where('isbn').equals(isbn).first();
+                if (exists) {
+                    alert("This book already exists in your library!");
+                    if (onBarcodeFound) onBarcodeFound(exists);
+                    return;
+                }
+
+                if (navigator.onLine) {
+                    try {
+                        const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+                        const data = await res.json();
+                        if (data.items && data.items[0]) {
+                            const info = data.items[0].volumeInfo;
+                            setForm(f => ({
+                                ...f, isbn: isbn, title: info.title, author: info.authors?.[0],
+                                publisher: info.publisher, pub_year: info.publishedDate?.substring(0, 4),
+                                front: info.imageLinks?.thumbnail, page_count: info.pageCount
+                            }));
+                        } else { alert("Not found in API. Please enter details manually."); }
+                    } catch (e) { alert("API Error. Please check internet."); }
+                } else {
+                    setForm(f => ({ ...f, isbn: isbn }));
+                    alert("Offline Mode: ISBN Scanned. Please enter details.");
+                }
+            };
+
+            const startVoice = (field) => {
+                if (!('webkitSpeechRecognition' in window)) return alert("Voice typing not supported");
+                const recognition = new window.webkitSpeechRecognition();
+                recognition.lang = (field === 'title' && form.lang !== 'en') ?
+                    (form.lang === 'ml' ? 'ml-IN' : form.lang === 'ar' ? 'ar-SA' : 'hi-IN') : 'en-US';
+
+                recognition.onstart = () => setListeningField(field);
+                recognition.onend = () => setListeningField(null);
+                recognition.onresult = (event) => {
+                    const transcript = event.results[0][0].transcript;
+                    if (field === 'tags') setForm(f => ({ ...f, tags: transcript.split(/[\s,]+/).filter(Boolean) }));
+                    else setForm(f => ({ ...f, [field]: transcript }));
+                };
+                recognition.start();
+            };
+
+            const saveCheck = async () => {
+                const exists = await db.books.where('title').equalsIgnoreCase(form.title).toArray();
+                if (exists.length > 0) {
+                    const isSelf = form.id && exists.length === 1 && exists[0].id === form.id;
+                    if (!isSelf && !confirm(`Possible Duplicate: "${form.title}" exists. Save anyway?`)) return;
+                }
+                onSave(form);
+            };
+
+            const handleChange = (field, val) => setForm(prev => ({ ...prev, [field]: val }));
+
+            return (
+                <div className="bg-white min-h-screen pb-24">
+                    {scanMode && <BarcodeScanner onDetected={handleBarcode} onClose={() => setScanMode(false)} />}
+                    <div className="p-4 border-b flex justify-between sticky top-0 bg-white z-20 shadow-sm">
+                        <button onClick={onCancel} className="text-gray-500">Cancel</button>
+                        <h2 className="font-bold">{book ? 'Edit' : 'Cataloging'}</h2>
+                        <button onClick={saveCheck} className="text-blue-600 font-bold">Save</button>
+                    </div>
+
+                    <div className="p-4 space-y-5">
+                        {!book && <button onClick={() => setScanMode(true)} className="w-full py-4 bg-gray-800 text-white rounded-xl flex flex-col items-center justify-center font-bold mb-4"><Icon name="Barcode" size={32} /> <span>Scan Barcode</span></button>}
+
+                        {/* GALLERY */}
+                        <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+                            <label className="flex-shrink-0 w-28 h-40 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center overflow-hidden">
+                                {form.front ? <img src={form.front} className="w-full h-full object-cover" /> : <div className="text-center text-gray-400"><Icon name="Camera" /><span className="text-[10px] block">Front</span></div>}
+                                <input type="file" className="hidden" onChange={e => handleImg(e, 'front')} capture="environment" accept="image/*" />
+                            </label>
+                            <label className="flex-shrink-0 w-28 h-40 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center overflow-hidden">
+                                {form.rear ? <img src={form.rear} className="w-full h-full object-cover" /> : <div className="text-center text-gray-400"><Icon name="Camera" /><span className="text-[10px] block">Rear</span></div>}
+                                <input type="file" className="hidden" onChange={e => handleImg(e, 'rear')} capture="environment" accept="image/*" />
+                            </label>
+                            {form.pages && form.pages.map((p, i) => (<div key={i} className="flex-shrink-0 w-28 h-40 bg-gray-100 rounded-lg border overflow-hidden"><img src={p} className="w-full h-full object-cover" /></div>))}
+                            <label className="flex-shrink-0 w-28 h-40 bg-white border-2 border-dashed border-blue-300 rounded-lg flex flex-col items-center justify-center text-blue-500">
+                                <Icon name="PlusSquare" /><span className="text-[10px] font-bold">Add Page</span>
+                                <input type="file" className="hidden" onChange={handlePageAdd} capture="environment" accept="image/*" />
+                            </label>
+                        </div>
+
+                        {/* META DATA */}
+                        <div className="space-y-3">
+                            <div className="flex gap-2 mb-2">
+                                {['en', 'ml', 'hi', 'ar'].map(l => (
+                                    <button key={l} onClick={() => setForm({ ...form, lang: l })} className={`px-3 py-1 rounded text-xs font-bold uppercase border ${form.lang === l ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'}`}>{l}</button>
+                                ))}
+                            </div>
+
+                            <VoiceInput label="Title (Native)" field="title" value={form.title} onChange={(e) => handleChange('title', e.target.value)} onVoice={() => startVoice('title')} isListening={listeningField === 'title'} lang={form.lang} />
+                            <VoiceInput label="Phonetic (Manual)" field="phonetic" value={form.phonetic} onChange={(e) => handleChange('phonetic', e.target.value)} onVoice={() => startVoice('phonetic')} isListening={listeningField === 'phonetic'} lang="en" />
+                            <VoiceInput label="ISBN" field="isbn" value={form.isbn} onChange={(e) => handleChange('isbn', e.target.value)} onVoice={() => startVoice('isbn')} isListening={listeningField === 'isbn'} lang="en" />
+
+                            {/* ADDED MIC ICONS */}
+                            <div className="relative">
+                                <AutoSuggestInput label="Author" field="author" value={form.author} onChange={(e) => handleChange('author', e.target.value)} />
+                                <button type="button" onClick={() => startVoice('author')} className={`absolute right-2 bottom-3 p-1 rounded-full ${listeningField === 'author' ? 'bg-red-500 text-white' : 'text-gray-400'}`}><Icon name="Mic" size={20} /></button>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="relative">
+                                    <AutoSuggestInput label="Publisher" field="publisher" value={form.publisher} onChange={(e) => handleChange('publisher', e.target.value)} />
+                                    <button type="button" onClick={() => startVoice('publisher')} className={`absolute right-2 bottom-3 p-1 rounded-full ${listeningField === 'publisher' ? 'bg-red-500 text-white' : 'text-gray-400'}`}><Icon name="Mic" size={20} /></button>
+                                </div>
+                                <VoiceInput label="Pub Year" field="pub_year" value={form.pub_year} onChange={(e) => handleChange('pub_year', e.target.value)} onVoice={() => startVoice('pub_year')} isListening={listeningField === 'pub_year'} lang="en" type="number" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <VoiceInput label="Pages" field="page_count" value={form.page_count} onChange={(e) => handleChange('page_count', e.target.value)} type="number" lang="en" />
+                                <div>
+                                    <label className="text-xs text-gray-500 font-bold">Condition</label>
+                                    <select className="w-full p-3 border rounded-lg bg-white" value={form.condition} onChange={e => handleChange('condition', e.target.value)}>
+                                        <option>Good</option><option>New</option><option>Old</option><option>Torn</option><option>Loose</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* ASSET DATA */}
+                        <h3 className="text-xs font-bold text-gray-400 uppercase mt-4">Asset Info</h3>
+                        <div className="space-y-3">
+                            <div className="relative">
+                                <AutoSuggestInput label="Owner" field="owner" value={form.owner} onChange={(e) => handleChange('owner', e.target.value)} placeholder="e.g. Dad" />
+                                <button type="button" onClick={() => startVoice('owner')} className={`absolute right-2 bottom-3 p-1 rounded-full ${listeningField === 'owner' ? 'bg-red-500 text-white' : 'text-gray-400'}`}><Icon name="Mic" size={20} /></button>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="flex gap-1">
+                                    <div className="w-1/3">
+                                        <label className="text-xs text-gray-500 font-bold">Currency</label>
+                                        <input className="w-full p-3 border rounded-lg text-center font-bold" value={form.currency} onChange={e => handleChange('currency', e.target.value)} list="currencies" />
+                                        <datalist id="currencies"><option value="₹" /><option value="$" /><option value="€" /><option value="£" /><option value="QAR" /><option value="DH" /></datalist>
+                                    </div>
+                                    <div className="w-2/3">
+                                        <label className="text-xs text-gray-500 font-bold">Price</label>
+                                        <input type="number" className="w-full p-3 border rounded-lg" value={form.price} onChange={e => handleChange('price', e.target.value)} />
+                                    </div>
+                                </div>
+                                <VoiceInput label="Buy Year" field="buy_year" value={form.buy_year} onChange={(e) => handleChange('buy_year', e.target.value)} onVoice={() => startVoice('buy_year')} isListening={listeningField === 'buy_year'} lang="en" type="number" />
+                            </div>
+                        </div>
+
+                        {/* LOCATION */}
+                        <h3 className="text-xs font-bold text-gray-400 uppercase mt-4">Location</h3>
+                        <div className="grid grid-cols-2 gap-4">
+                            <AutoSuggestInput label="Building" field="building" value={form.building} onChange={(e) => handleChange('building', e.target.value)} />
+                            <AutoSuggestInput label="Shelf" field="shelf" value={form.shelf} onChange={(e) => handleChange('shelf', e.target.value)} />
+                        </div>
+
+                        <VoiceInput label="Tags" field="tags" value={(form.tags || []).join(',')} onChange={(e) => setForm(f => ({ ...f, tags: e.target.value.split(',') }))} onVoice={() => startVoice('tags')} isListening={listeningField === 'tags'} lang="en" placeholder="e.g. history, torn" />
+                    </div>
+                </div>
+            );
+        };
+
+        // MULTI-TAG SEARCH INPUT
+        const MultiTagInput = ({ options, value, onChange, placeholder }) => {
+            const [input, setInput] = useState('');
+            const [filteredOpts, setFilteredOpts] = useState([]);
+
+            // Suggest logic
+            useEffect(() => {
+                if (!input) { setFilteredOpts([]); return; }
+                const q = input.toLowerCase();
+                const matches = options.filter(o => o.toLowerCase().includes(q) && !value.includes(o)).slice(0, 5);
+                setFilteredOpts(matches);
+            }, [input, options, value]);
+
+            const addTag = (t) => {
+                onChange([...value, t]);
+                setInput('');
+            };
+
+            const removeTag = (t) => {
+                onChange(value.filter(v => v !== t));
+            };
+
+            const handleKeyDown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (filteredOpts.length > 0) addTag(filteredOpts[0]);
+                    else if (input) { addTag(input); }
+                }
+                if (e.key === 'Backspace' && !input && value.length > 0) {
+                    removeTag(value[value.length - 1]);
+                }
+            };
+
+            return (
+                <div className="flex items-center gap-2 flex-wrap bg-gray-100 p-2 rounded-lg border focus-within:ring-2 focus-within:ring-blue-200">
+                    <Icon name="Search" className="text-gray-400" size={16} />
+                    {value.map(t => (
+                        <span key={t} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full flex items-center gap-1">
+                            {t}
+                            <button onClick={() => removeTag(t)} className="hover:text-red-500">×</button>
+                        </span>
+                    ))}
+                    <div className="relative flex-1 min-w-[60px]">
+                        <input
+                            className="w-full bg-transparent text-sm focus:outline-none min-w-[100px]"
+                            placeholder={value.length > 0 ? "" : placeholder}
+                            value={input}
+                            onChange={e => setInput(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                        />
+                        {filteredOpts.length > 0 && (
+                            <div className="absolute top-full left-0 bg-white border shadow-lg rounded mt-1 z-50 w-full min-w-[150px]">
+                                {filteredOpts.map(o => (
+                                    <div key={o} onClick={() => addTag(o)} className="p-2 text-sm hover:bg-gray-100 cursor-pointer">{o}</div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- SLICER SEARCH ---
+        const SlicerSearch = ({ books, onEdit }) => {
+            const [activeFilters, setActiveFilters] = useState([]);
+            const [pendingField, setPendingField] = useState('publisher');
+            const [pendingValue, setPendingValue] = useState('');
+            const [viewMode, setViewMode] = useState('grid');
+            const [detailBook, setDetailBook] = useState(null);
+
+            const suggestions = useMemo(() => {
+                const set = new Set();
+                books.forEach(b => {
+                    if (['publisher', 'author', 'owner', 'building', 'lang', 'condition'].includes(pendingField)) {
+                        if (b[pendingField]) set.add(b[pendingField]);
+                    }
+                    if (pendingField === 'tags' && b.tags) b.tags.forEach(t => set.add(t));
+                    if (pendingField === 'pub_year' && b.pub_year) set.add(b.pub_year);
+                });
+                return [...set].sort();
+            }, [books, pendingField]);
+
+            const addFilter = () => {
+                if (!pendingValue) return;
+                setActiveFilters([...activeFilters, { field: pendingField, value: pendingValue }]);
+                setPendingValue('');
+            };
+
+            const removeFilter = (index) => {
+                const next = [...activeFilters];
+                next.splice(index, 1);
+                setActiveFilters(next);
+            };
+
+            const filtered = books.filter(b => {
+                if (activeFilters.length === 0) return true;
+                return activeFilters.every(f => {
+                    if (f.field === 'tags') return b.tags && b.tags.includes(f.value);
+                    return b[f.field] == f.value;
+                });
+            });
+
+            return (
+                <div className="pb-24 flex flex-col h-screen">
+                    <div className="bg-white p-4 border-b">
+                        <h2 className="text-xl font-bold mb-4">Slicer Studio</h2>
+
+                        <div className="flex gap-2 mb-2">
+                            <select className="p-2 border rounded bg-gray-50 text-sm font-bold uppercase w-1/3" value={pendingField} onChange={e => setPendingField(e.target.value)}>
+                                <option value="publisher">Publisher</option><option value="author">Author</option><option value="owner">Owner</option><option value="tags">Tags</option><option value="lang">Language</option><option value="building">Location</option><option value="pub_year">Year</option><option value="condition">Condition</option>
+                            </select>
+                            <input list="slicer-suggestions" className="flex-1 p-2 border rounded" placeholder="Select value..." value={pendingValue} onChange={e => setPendingValue(e.target.value)} />
+                            <datalist id="slicer-suggestions">{suggestions.map(s => <option key={s} value={s} />)}</datalist>
+                            <button onClick={addFilter} className="bg-blue-600 text-white px-4 rounded font-bold">+</button>
+                        </div>
+                        <div className="flex flex-wrap gap-2 min-h-[30px]">
+                            {activeFilters.length === 0 && <span className="text-xs text-gray-400 italic py-1">No active filters. Showing all books.</span>}
+                            {activeFilters.map((f, i) => (
+                                <span key={i} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full flex items-center gap-1 border border-blue-200">
+                                    <b>{f.field}:</b> {f.value}
+                                    <button onClick={() => removeFilter(i)} className="ml-1 text-blue-500 hover:text-red-500 font-bold">×</button>
+                                </span>
+                            ))}
+                        </div>
+                        <div className="flex justify-between items-center mt-4 pt-2 border-t">
+                            <span className="text-xs font-bold text-gray-500">{filtered.length} Results</span>
+                            <div className="flex gap-2 items-center">
+                                <button onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')} className="p-2 border rounded text-gray-500 hover:bg-gray-100"><Icon name={viewMode === 'grid' ? 'LayoutList' : 'Grid'} size={16} /></button>
+                                <button onClick={() => ExportUtils.csv(filtered, 'mixed')} className="text-xs font-bold text-gray-500 border rounded px-2 py-1 flex gap-1 items-center hover:bg-gray-50"><Icon name="Download" size={12} /> CSV</button>
+                                <button onClick={() => ExportUtils.htmlText(filtered, 'mixed', "Filtered Report")} className="text-xs font-bold text-gray-500 border rounded px-2 py-1 flex gap-1 items-center hover:bg-gray-50"><Icon name="FileText" size={12} /> HTML</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
+                        {viewMode === 'grid' ? (
+                            <div className="grid grid-cols-2 gap-4">
+                                {filtered.map(b => (
+                                    <div key={b.id} onClick={() => setDetailBook(b)} className="bg-white p-2 rounded shadow text-center cursor-pointer hover:shadow-md transition-shadow">
+                                        {b.front ? <img src={b.front} className="h-24 mx-auto object-cover mb-2 rounded" /> : <div className="h-24 bg-gray-100 flex items-center justify-center mb-2 rounded"><Icon name="Book" /></div>}
+                                        <div className="font-bold text-sm truncate">{b.title}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                {filtered.map(b => (
+                                    <div key={b.id} onClick={() => setDetailBook(b)} className="bg-white p-3 rounded shadow flex gap-3 items-center cursor-pointer hover:bg-gray-50">
+                                        {b.front ? <img src={b.front} className="w-10 h-14 object-cover rounded" /> : <div className="w-10 h-14 bg-gray-200 rounded flex items-center justify-center"><Icon name="Book" size={16} /></div>}
+                                        <div className="flex-1 min-w-0">
+                                            <div className="font-bold text-sm truncate">{b.title}</div>
+                                            <div className="text-xs text-gray-500 truncate">{b.author} • {b.publisher}</div>
+                                        </div>
+                                        <div className="text-xs font-bold text-gray-400">{b.pub_year}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    {detailBook && <DetailModal book={detailBook} onClose={() => setDetailBook(null)} onEdit={(b) => { onEdit(b); setDetailBook(null) }} />}
+                </div>
+            );
+        };
+
+        // --- LIBRARY & DETAIL ---
+        const LibraryView = ({ books, onEdit, onDeleteMulti }) => {
+            const [sort, setSort] = useState({ p: 'date_added', s: 'title', dir: 'desc' });
+            const [detailBook, setDetailBook] = useState(null);
+            const [selectMode, setSelectMode] = useState(false);
+            const [selected, setSelected] = useState([]);
+            const [viewMode, setViewMode] = useState('grid');
+            const [search, setSearch] = useState({ tags: [], query: '' });
+
+            const sorted = useMemo(() => {
+                const res = books.filter(b => {
+                    // TAG FILTER
+                    if (search.tags && search.tags.length > 0) {
+                        const bTags = b.tags || [];
+                        if (!search.tags.every(t => bTags.includes(t))) return false;
+                    }
+                    return true;
+                });
+                return res.sort((a, b) => {
+                    const vA = a[sort.p] || '', vB = b[sort.p] || '';
+                    if (vA < vB) return sort.dir === 'asc' ? -1 : 1; if (vA > vB) return sort.dir === 'asc' ? 1 : -1;
+                    return (a[sort.s] || '').localeCompare(b[sort.s] || '');
+                });
+            }, [books, sort, search]);
+
+            const toggleSelect = (id) => {
+                setSelected(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+            };
+
+            const handleCardClick = (b) => {
+                if (selectMode) toggleSelect(b.id); else setDetailBook(b);
+            };
+
+            const handleMultiDelete = () => { onDeleteMulti(selected); setSelected([]); setSelectMode(false); };
+
+            return (
+                <div className="pb-24">
+                    <div className="bg-white p-4 sticky top-0 z-10 shadow-sm flex flex-col gap-2">
+                        <div className="flex justify-between items-center">
+                            <h2 className="text-xl font-bold">Library</h2>
+                            <div className="flex gap-2">
+                                <button onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')} className="p-2 border rounded text-gray-500 hover:bg-gray-100"><Icon name={viewMode === 'grid' ? 'LayoutList' : 'Grid'} size={16} /></button>
+                                {selectMode ?
+                                    <button onClick={handleMultiDelete} className="text-xs bg-red-100 text-red-600 px-3 py-1 rounded font-bold">Delete ({selected.length})</button>
+                                    :
+                                    <select className="text-xs border rounded p-1" onChange={e => setSort({ ...sort, p: e.target.value })}>
+                                        <option value="date_added">Recent</option><option value="title">Title</option><option value="author">Author</option><option value="year">Year</option>
+                                    </select>
+                                }
+                                <button onClick={() => { setSelectMode(!selectMode); setSelected([]) }} className={`text-xs border rounded p-1 ${selectMode ? 'bg-blue-600 text-white' : 'text-gray-500'}`}>{selectMode ? 'Done' : 'Select'}</button>
+                            </div>
+                        </div>
+                        <MultiTagInput
+                            options={[...new Set(books.flatMap(b => b.tags || []))].sort()}
+                            value={search.tags}
+                            onChange={tags => setSearch({ ...search, tags })}
+                            placeholder="Search tags (e.g. history)..."
+                        />
+                        {/* Text Fallback / Combined Search */}
+                        <div className="mt-2 text-xs flex gap-2 overflow-x-auto">
+                            {/* Auto-chips from content can go here if we want 'Quick Filters' */}
+                        </div>
+                    </div>
+
+                    <div className="p-4">
+                        {viewMode === 'grid' ? (
+                            <div className="grid grid-cols-2 gap-4">
+                                {sorted.map(b => (
+                                    <div key={b.id} onClick={() => handleCardClick(b)} className={`bg-white p-3 rounded-xl shadow-sm border relative cursor-pointer ${selected.includes(b.id) ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-100'}`}>
+                                        {selectMode && <div className={`absolute top-2 right-2 w-5 h-5 rounded-full border-2 ${selected.includes(b.id) ? 'bg-blue-500 border-blue-500' : 'border-gray-300'} flex items-center justify-center`}>{selected.includes(b.id) && <Icon name="CheckSquare" className="text-white" size={12} />}</div>}
+                                        <div className="w-full h-40 bg-gray-100 rounded-lg overflow-hidden mb-2">
+                                            {b.front ? <img src={b.front} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-300"><Icon name="Book" size={32} /></div>}
+                                        </div>
+                                        <h3 className="font-bold leading-tight text-sm line-clamp-2">{b.title}</h3>
+                                        <p className="text-xs text-gray-500 truncate">{b.author}</p>
+                                        <div className="absolute top-2 left-2 bg-black/50 text-white text-[10px] px-2 rounded">{b.currency || ''} {b.price}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                {sorted.map(b => (
+                                    <div key={b.id} onClick={() => handleCardClick(b)} className={`bg-white p-3 rounded-xl shadow-sm border flex gap-3 items-center relative cursor-pointer ${selected.includes(b.id) ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-100'}`}>
+                                        {selectMode && <div className={`absolute top-2 right-2 w-5 h-5 rounded-full border-2 ${selected.includes(b.id) ? 'bg-blue-500 border-blue-500' : 'border-gray-300'} flex items-center justify-center`}>{selected.includes(b.id) && <Icon name="CheckSquare" className="text-white" size={12} />}</div>}
+                                        {b.front ? <img src={b.front} className="w-12 h-16 object-cover rounded" /> : <div className="w-12 h-16 bg-gray-200 rounded flex items-center justify-center"><Icon name="Book" size={16} /></div>}
+                                        <div className="flex-1 min-w-0">
+                                            <h3 className="font-bold text-sm truncate">{b.title}</h3>
+                                            <p className="text-xs text-gray-500 truncate">{b.author}</p>
+                                            <div className="text-[10px] text-gray-400">{b.publisher} • {b.pub_year}</div>
+                                        </div>
+                                        <div className="font-bold text-sm">{b.currency || ''} {b.price}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* DETAIL MODAL (READ ONLY + GALLERY + ZOOM) */}
+                    {detailBook && (
+                        <DetailModal book={detailBook} onClose={() => setDetailBook(null)} onEdit={(b) => { onEdit(b); setDetailBook(null) }} />
+                    )}
+                </div>
+            );
+        };
+
+        // --- DETAIL MODAL WITH ZOOM ---
+        const DetailModal = ({ book, onClose, onEdit }) => {
+            const [zoomImg, setZoomImg] = useState(null);
+
+            return (
+                <div className="fixed inset-0 bg-black/80 z-50 flex items-end sm:items-center justify-center p-4">
+                    {zoomImg && (
+                        <div className="fixed inset-0 z-[60] bg-black flex items-center justify-center" onClick={() => setZoomImg(null)}>
+                            <img src={zoomImg} className="max-w-full max-h-full object-contain" />
+                            <button className="absolute top-4 right-4 text-white p-2 bg-black/50 rounded-full"><Icon name="X" size={32} /></button>
+                        </div>
+                    )}
+
+                    <div className="bg-white w-full max-w-md rounded-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
+                        <div className="relative h-64 bg-gray-100 overflow-x-auto whitespace-nowrap flex">
+                            {/* Gallery View */}
+                            {book.front && <img src={book.front} onClick={() => setZoomImg(book.front)} className="h-full w-auto object-contain flex-shrink-0 mr-1 bg-black/5 cursor-zoom-in" />}
+                            {book.rear && <img src={book.rear} onClick={() => setZoomImg(book.rear)} className="h-full w-auto object-contain flex-shrink-0 mr-1 bg-black/5 cursor-zoom-in" />}
+                            {(book.pages || []).map((p, i) => <img key={i} src={p} onClick={() => setZoomImg(p)} className="h-full w-auto object-contain flex-shrink-0 mr-1 bg-black/5 cursor-zoom-in" />)}
+                            <button onClick={onClose} className="absolute top-4 right-4 bg-white/50 p-2 rounded-full"><Icon name="X" /></button>
+                        </div>
+                        <div className="p-6">
+                            <h1 className="text-2xl font-bold mb-1">{book.title}</h1>
+                            <p className="text-gray-600 mb-4">{book.author}</p>
+
+                            <div className="grid grid-cols-2 gap-4 text-sm mb-6">
+                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">Publisher</span><b>{book.publisher || '-'}</b></div>
+                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">Year</span><b>{book.pub_year || '-'}</b></div>
+                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">Location</span><b>{book.building} {book.shelf}</b></div>
+                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">Pages</span><b>{book.page_count || '-'}</b></div>
+                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">Condition</span><b>{book.condition || '-'}</b></div>
+                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">Owner</span><b>{book.owner || '-'}</b></div>
+                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">ISBN</span><b>{book.isbn || '-'}</b></div>
+                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">Value</span><b>{book.currency || ''} {book.price}</b></div>
+                            </div>
+                            <button onClick={() => onEdit(book)} className="w-full py-4 bg-blue-600 text-white font-bold rounded-xl flex items-center justify-center gap-2"><Icon name="Edit3" /> Edit / Update</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- DASHBOARD ---
+        const Dashboard = ({ books }) => {
+            const total = books.length;
+            // Group by currency
+            const assetBreakdown = useMemo(() => {
+                const groups = {};
+                books.forEach(b => {
+                    const curr = b.currency || '?';
+                    groups[curr] = (groups[curr] || 0) + (Number(b.price) || 0);
+                });
+                return groups;
+            }, [books]);
+
+            const pubStats = useMemo(() => {
+                const c = {}; books.forEach(b => { const k = b.publisher || 'Unknown'; c[k] = (c[k] || 0) + 1; });
+                return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            }, [books]);
+
+            // NEW: Lang/Loc Stats for Dash
+            const langStats = useMemo(() => {
+                const c = {}; books.forEach(b => { c[b.lang || 'en'] = (c[b.lang || 'en'] || 0) + 1 });
+                const total = books.length || 1; let current = 0;
+                const colors = { en: '#3b82f6', ml: '#10b981', ar: '#f59e0b', hi: '#ef4444' };
+                return Object.entries(c).map(([l, v]) => {
+                    const pct = (v / total) * 100; const str = `${colors[l] || '#ccc'} ${current}% ${current + pct}%`; current += pct; return str;
+                }).join(', ');
+            }, [books]);
+
+            const locStats = useMemo(() => {
+                const c = {}; books.forEach(b => { const k = b.building || 'Unknown'; c[k] = (c[k] || 0) + 1; });
+                return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            }, [books]);
+
+            const tagStats = useMemo(() => {
+                const c = {}; books.forEach(b => { if (b.tags) b.tags.forEach(t => c[t] = (c[t] || 0) + 1) });
+                return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            }, [books]);
+
+            const condStats = useMemo(() => {
+                const c = {}; books.forEach(b => { const k = b.condition || 'Good'; c[k] = (c[k] || 0) + 1; });
+                return Object.entries(c).sort((a, b) => b[1] - a[1]);
+            }, [books]);
+
+            const repairList = books.filter(b => b.condition === 'Torn' || b.condition === 'Loose' || (b.tags && b.tags.includes('repair')));
+
+            return (
+                <div className="p-4 space-y-6 pb-24">
+                    <h2 className="text-2xl font-bold">Analytics</h2>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-white p-4 rounded-xl shadow border border-blue-100"><p className="text-xs text-gray-500 font-bold uppercase">Total Books</p><p className="text-3xl font-bold text-blue-600">{total}</p></div>
+                        <div className="bg-white p-4 rounded-xl shadow border border-green-100"><p className="text-xs text-gray-500 font-bold uppercase">Asset Value</p>
+                            {Object.entries(assetBreakdown).map(([curr, val]) => (
+                                <div key={curr} className="text-lg font-bold text-green-600">{curr} {val.toLocaleString()}</div>
+                            ))}
+                            {Object.keys(assetBreakdown).length === 0 && <p className="text-xl font-bold text-gray-400">0</p>}
+                        </div>
+                    </div>
+
+                    {repairList.length > 0 && <div className="bg-red-50 p-4 rounded-xl border border-red-200 text-red-800 font-bold flex items-center gap-2"><Icon name="AlertCircle" /> {repairList.length} Books Need Repair</div>}
+
+                    <div className="bg-white p-4 rounded-xl shadow border flex gap-4">
+                        <div className="pie-chart flex-shrink-0" style={{ '--pie-gradient': langStats }}></div>
+                        <div><h3 className="font-bold mb-2">Language Mix</h3><div className="text-xs text-gray-500">Visual breakdown of your library languages.</div></div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl shadow border">
+                        <h3 className="font-bold mb-4">Top Publishers</h3>
+                        {pubStats.map(([k, v]) => (
+                            <div key={k} className="mb-2"><div className="flex justify-between text-xs mb-1"><span>{k}</span><b>{v}</b></div><div className="bar-bg"><div className="bar-fill bg-purple-500" style={{ width: `${(v / total) * 100}%` }}></div></div></div>
+                        ))}
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl shadow border">
+                        <h3 className="font-bold mb-4">Locations</h3>
+                        {locStats.map(([k, v]) => (
+                            <div key={k} className="mb-2"><div className="flex justify-between text-xs mb-1"><span>{k}</span><b>{v}</b></div><div className="bar-bg"><div className="bar-fill bg-blue-500" style={{ width: `${(v / total) * 100}%` }}></div></div></div>
+                        ))}
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl shadow border">
+                        <h3 className="font-bold mb-4">Top Tags</h3>
+                        {tagStats.map(([k, v]) => (
+                            <div key={k} className="mb-2"><div className="flex justify-between text-xs mb-1"><span>{k}</span><b>{v}</b></div><div className="bar-bg"><div className="bar-fill bg-green-500" style={{ width: `${(v / total) * 100}%` }}></div></div></div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- TOOLS ---
+        const Tools = ({ books }) => {
+            const [lastRestore, setLastRestore] = useState(null);
+            useEffect(() => {
+                const stored = localStorage.getItem('shelfLife_restore_meta');
+                if (stored) setLastRestore(JSON.parse(stored));
+            }, []);
+
+            const backupFull = async () => {
+                const data = await db.books.toArray();
+                ExportUtils.download(JSON.stringify(data), `ShelfLife_Full_${ExportUtils.getTimestamp()}.json`, "application/json");
+            };
+
+            const backupText = async () => {
+                const data = await db.books.toArray();
+                const textOnly = data.map(b => ({ ...b, front: null, rear: null, pages: [] }));
+                ExportUtils.download(JSON.stringify(textOnly), `ShelfLife_Text_${ExportUtils.getTimestamp()}.json`, "application/json");
+            };
+
+            const restore = (e, mode) => {
+                if (!e.target.files[0] || !confirm("Wipe & Replace Library? This action cannot be undone.")) return;
+                const file = e.target.files[0];
+                const r = new FileReader();
+                r.onload = async (ev) => {
+                    try {
+                        const data = JSON.parse(ev.target.result);
+                        await db.books.clear();
+                        await db.books.bulkAdd(data);
+                        localStorage.setItem('shelfLife_restore_meta', JSON.stringify({ name: file.name, date: new Date().toLocaleString() }));
+                        alert("Restore Successful!");
+                        window.location.reload();
+                    } catch (e) {
+                        alert("Error restoring file: " + e.message);
+                    }
+                };
+                r.readAsText(file);
+            };
+
+            return (
+                <div className="p-4 space-y-4 pb-24">
+                    <h2 className="text-2xl font-bold">Tools</h2>
+
+                    <div className="bg-white p-4 rounded-xl shadow border border-blue-100">
+                        <h3 className="font-bold mb-3 text-blue-800">Reports</h3>
+                        <div className="space-y-2">
+                            <button onClick={() => ExportUtils.htmlText(books, 'Mix')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="List" /> HTML Text Report</button>
+                            <button onClick={() => ExportUtils.htmlVisual(books, 'Mix')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Image" /> HTML Visual Catalogue</button>
+                            <button onClick={() => ExportUtils.csv(books, 'Mix')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Download" /> Export CSV</button>
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl shadow border border-orange-100">
+                        <h3 className="font-bold mb-3 text-orange-800">Data Management</h3>
+                        {lastRestore && <div className="text-xs text-gray-500 mb-3 bg-gray-50 p-2 rounded border">Last Restored: <b>{lastRestore.name}</b><br />{lastRestore.date}</div>}
+
+                        {/* SAF STORAGE SETTINGS */}
+                        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                            <h4 className="font-bold text-xs uppercase text-yellow-800 mb-2">Storage Location</h4>
+                            <p className="text-[10px] text-yellow-700 mb-2">Keep data safe from uninstall by choosing a folder.</p>
+                            <button onClick={() => {
+                                // MOCK SAF TRIGGER
+                                if (window.Capacitor) {
+                                    // Actual Native Call Implementation would go here
+                                    // e.g. Plugins.Filesystem.pickDirectory() ...
+                                    alert("Redirecting to Android Storage Picker (SAF)...");
+                                } else {
+                                    alert("On Android, this opens the folder picker to select a permanent text/backup location.");
+                                }
+                            }} className="w-full py-2 bg-yellow-600 text-white rounded text-xs font-bold">Select Permanent Data Folder</button>
+                        </div>
+
+                        <div className="space-y-2">
+                            <button onClick={backupFull} className="w-full py-3 bg-gray-800 text-white rounded font-bold text-sm flex justify-center gap-2"><Icon name="Download" /> Full Backup (Images)</button>
+                            <button onClick={backupText} className="w-full py-3 bg-gray-600 text-white rounded font-bold text-sm flex justify-center gap-2"><Icon name="FileText" /> Text-Only Backup (Lite)</button>
+
+                            <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-orange-200">
+                                <label className="py-3 bg-orange-100 text-orange-800 rounded font-bold text-center block text-xs cursor-pointer flex justify-center gap-1 items-center border border-orange-200 hover:bg-orange-200">
+                                    <Icon name="Upload" size={14} /> Full Restore
+                                    <input type="file" className="hidden" onChange={e => restore(e, 'full')} />
+                                </label>
+                                <label className="py-3 bg-orange-50 text-orange-600 rounded font-bold text-center block text-xs cursor-pointer flex justify-center gap-1 items-center border border-orange-200 hover:bg-orange-100">
+                                    <Icon name="FileText" size={14} /> Text Restore
+                                    <input type="file" className="hidden" onChange={e => restore(e, 'text')} />
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="bg-white p-4 rounded-xl shadow border">
+                        <h3 className="font-bold mb-3">Tag Manager</h3>
+                        <TagManager books={books} onClose={() => { }} />
+                    </div>
+                </div>
+            );
+        };
+
+        // --- TAG MANAGER ---
+        const TagManager = ({ books, onClose }) => {
+            const tags = useMemo(() => { const t = {}; books.forEach(b => { if (b.tags) b.tags.forEach(x => t[x] = (t[x] || 0) + 1) }); return Object.entries(t).sort((a, b) => b[1] - a[1]); }, [books]);
+
+            const handleRename = async (oldTag) => {
+                const newTag = prompt(`Rename ${oldTag} to:`);
+                if (!newTag || newTag === oldTag) return;
+                const affected = books.filter(b => b.tags && b.tags.includes(oldTag));
+                for (const b of affected) {
+                    const newTags = b.tags.filter(t => t !== oldTag);
+                    if (!newTags.includes(newTag)) newTags.push(newTag);
+                    await db.books.update(b.id, { tags: newTags });
+                }
+                alert("Tag Renamed!");
+            };
+
+            const handleMerge = async (oldTag) => {
+                const target = prompt(`Merge #${oldTag} into existing tag (Books will move to new tag):`);
+                if (!target || target === oldTag) return;
+                const affected = books.filter(b => b.tags && b.tags.includes(oldTag));
+                for (const b of affected) {
+                    let newTags = b.tags.filter(t => t !== oldTag);
+                    if (!newTags.includes(target)) newTags.push(target);
+                    await db.books.update(b.id, { tags: newTags });
+                }
+                alert(`Merged #${oldTag} -> #${target}`);
+            };
+
+            const handleDelete = async (tag) => {
+                if (!confirm(`Delete tag "${tag}" from ${tags.find(t => t[0] === tag)[1]} books?`)) return;
+                const affected = books.filter(b => b.tags && b.tags.includes(tag));
+                for (const b of affected) {
+                    let newTags = b.tags.filter(t => t !== tag);
+                    await db.books.update(b.id, { tags: newTags });
+                }
+                alert("Tag Deleted");
+            };
+
+            return (
+                <div className="h-64 overflow-y-auto border rounded p-2">
+                    {tags.length === 0 && <p className="text-sm text-gray-400">No tags used.</p>}
+                    {tags.map(([t, c]) => (
+                        <div key={t} className="flex justify-between p-2 border-b text-sm items-center">
+                            <span><b>{t}</b> ({c})</span>
+                            <div className="flex gap-2">
+                                <button onClick={() => handleRename(t)} title="Rename" className="text-blue-500"><Icon name="Edit3" size={14} /></button>
+                                <button onClick={() => handleMerge(t)} title="Merge" className="text-purple-500"><Icon name="Merge" size={14} /></button>
+                                <button onClick={() => handleDelete(t)} title="Delete" className="text-red-500"><Icon name="Trash2" size={14} /></button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            );
+        };
+
+        // --- APP ROOT ---
+        const App = () => {
+            const [view, setView] = useState('library');
+            const [books, setBooks] = useState([]);
+            const [editBook, setEditBook] = useState(null);
+            const [currency, setCurrency] = useState(() => localStorage.getItem('shelfLife_currency') || '₹');
+
+            useEffect(() => {
+                const l = async () => setBooks(await db.books.toArray());
+                l();
+                setInterval(l, 1000);
+
+                // Android Back Button Logic
+                try {
+                    if (window.Capacitor) {
+                        /* 
+                           // Native Implementation (Commented for reference, will be active in build)
+                           // import { App } from '@capacitor/app';
+                           // App.addListener('backButton', ({ canGoBack }) => {
+                           //     if (canGoBack) window.history.back(); else {
+                           //          if (confirm('Exit ShelfLife?')) App.exitApp();
+                           //     }
+                           // });
+                        */
+                        console.log("Capacitor Back Button Listener Ready");
+                    }
+                } catch (e) { }
+
+            }, []);
+
+            // Pull to refresh logic
+            useEffect(() => {
+                let startY = 0;
+                const spinner = document.getElementById('ptr-spinner');
+
+                const touchStart = (e) => { if (window.scrollY === 0) startY = e.touches[0].clientY; };
+                const touchMove = (e) => {
+                    if (!startY) return;
+                    const y = e.touches[0].clientY;
+                    const diff = y - startY;
+                    if (diff > 0 && window.scrollY === 0) {
+                        if (diff > 80) spinner.style.top = '20px'; // Show
+                        else spinner.style.top = '-50px';
+                    }
+                };
+                const touchEnd = (e) => {
+                    if (spinner.style.top === '20px') {
+                        startY = 0;
+                        setTimeout(() => window.location.reload(), 500);
+                    }
+                };
+
+                window.addEventListener('touchstart', touchStart);
+                window.addEventListener('touchmove', touchMove);
+                window.addEventListener('touchend', touchEnd);
+                return () => {
+                    window.removeEventListener('touchstart', touchStart);
+                    window.removeEventListener('touchmove', touchMove);
+                    window.removeEventListener('touchend', touchEnd);
+                };
+            }, []);
+
+            useEffect(() => {
+                localStorage.setItem('shelfLife_currency', currency);
+            }, [currency]);
+
+            // Updated save logic with safety check
+            const save = async (d) => {
+                try {
+                    if (d.id) await db.books.put(d);
+                    else await db.books.add({ ...d, date_added: Date.now() });
+                    setEditBook(null);
+                    setView('library');
+                } catch (err) {
+                    alert("Database Error: " + err.message + "\nCheck storage space?");
+                }
+            };
+
+            const deleteMulti = async (ids) => { if (confirm(`Delete ${ids.length} books?`)) { await db.books.bulkDelete(ids); } };
+
+            if (editBook || view === 'add') return <BookForm book={editBook} onSave={save} onCancel={() => { setEditBook(null); setView('library') }} onBarcodeFound={(b) => { setEditBook(b); setView('add') }} globalCurrency={currency} />;
+
+            return (
+                <>
+                    <div className="max-w-md mx-auto min-h-screen bg-gray-50 no-print">
+                        <main>
+                            {view === 'library' && <LibraryView books={books} onEdit={(b) => { setEditBook(b); }} onDeleteMulti={deleteMulti} />}
+                            {view === 'search' && <SlicerSearch books={books} onEdit={(b) => { setEditBook(b); setView('add') }} />}
+                            {view === 'reports' && <Dashboard books={books} />}
+                            {view === 'settings' && <Tools books={books} currency={currency} setCurrency={setCurrency} />}
+                        </main>
+                        <nav className="fixed bottom-0 w-full max-w-md bg-white border-t flex justify-around py-3 pb-safe z-30">
+                            <button onClick={() => setView('library')} className={view === 'library' ? 'text-blue-600' : 'text-gray-400'}><Icon name="Library" /><span className="block text-[10px]">Lib</span></button>
+                            <button onClick={() => setView('search')} className={view === 'search' ? 'text-blue-600' : 'text-gray-400'}><Icon name="Search" /><span className="block text-[10px]">Search</span></button>
+                            <button onClick={() => setView('add')} className={view === 'add' ? 'text-blue-600' : 'text-gray-400'}><Icon name="PlusSquare" /><span className="block text-[10px]">Add</span></button>
+                            <button onClick={() => setView('reports')} className={view === 'reports' ? 'text-blue-600' : 'text-gray-400'}><Icon name="BarChart2" /><span className="block text-[10px]">Stats</span></button>
+                            <button onClick={() => setView('settings')} className={view === 'settings' ? 'text-blue-600' : 'text-gray-400'}><Icon name="Settings" /><span className="block text-[10px]">Tools</span></button>
+                        </nav>
+                    </div>
+                </>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+
+    </script>
+</body>
+
+</html>
