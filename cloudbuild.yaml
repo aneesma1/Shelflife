@@ -1,3 +1,4 @@
+steps:
   # 0. Setup Artifact Bucket (Ensure it exists)
   - name: 'gcr.io/cloud-builders/gsutil'
     entrypoint: 'bash'
