@@ -1002,34 +1002,117 @@
                 if (stored) setLastRestore(JSON.parse(stored));
             }, []);
 
-            const backupFull = async () => {
-                const data = await db.books.toArray();
-                ExportUtils.download(JSON.stringify(data), `ShelfLife_Full_${ExportUtils.getTimestamp()}.json`, "application/json");
-            };
+            // Consolidated Chunked Backup Helper
+            const performChunkedBackup = async () => {
+                if (!window.Capacitor) { alert("Backup requires Android App (Native Filesystem)."); return; }
+                try {
+                    const { Filesystem, Directory, Encoding } = window.Capacitor.Plugins;
+                    const allBooks = await db.books.toArray();
+                    const now = new Date();
+                    const ts = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '_' + String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0') + '-' + String(now.getSeconds()).padStart(2, '0');
+                    const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
 
-            const backupText = async () => {
-                const data = await db.books.toArray();
-                const textOnly = data.map(b => ({ ...b, front: null, rear: null, pages: [] }));
-                ExportUtils.download(JSON.stringify(textOnly), `ShelfLife_Text_${ExportUtils.getTimestamp()}.json`, "application/json");
-            };
+                    // Ensure Folder
+                    try { await Filesystem.mkdir({ path: `Documents/${folder}`, directory: Directory.External, recursive: true }); } catch (e) { }
 
-            const restore = (e, mode) => {
-                if (!e.target.files[0] || !confirm("Wipe & Replace Library? This action cannot be undone.")) return;
-                const file = e.target.files[0];
-                const r = new FileReader();
-                r.onload = async (ev) => {
-                    try {
-                        const data = JSON.parse(ev.target.result);
-                        await db.books.clear();
-                        await db.books.bulkAdd(data);
-                        localStorage.setItem('shelfLife_restore_meta', JSON.stringify({ name: file.name, date: new Date().toLocaleString() }));
-                        alert("Restore Successful!");
-                        window.location.reload();
-                    } catch (e) {
-                        alert("Error restoring file: " + e.message);
+                    const TARGET_SIZE = 9 * 1024 * 1024; // 9MB safe limit for chunks
+                    let part = 1;
+                    let currentChunk = [];
+                    let currentSize = 0;
+
+                    for (const book of allBooks) {
+                        const s = JSON.stringify(book);
+                        if (currentSize + s.length > TARGET_SIZE && currentChunk.length > 0) {
+                            const fname = `ShelfLife_Part${part}_${ts}.json`;
+                            await Filesystem.writeFile({
+                                path: `Documents/${folder}/${fname}`,
+                                data: JSON.stringify(currentChunk),
+                                directory: Directory.External,
+                                encoding: Encoding.UTF8
+                            });
+                            part++;
+                            currentChunk = [];
+                            currentSize = 0;
+                        }
+                        currentChunk.push(book);
+                        currentSize += s.length;
                     }
-                };
-                r.readAsText(file);
+
+                    if (currentChunk.length > 0) {
+                        const fname = `ShelfLife_Part${part}_${ts}.json`;
+                        await Filesystem.writeFile({
+                            path: `Documents/${folder}/${fname}`,
+                            data: JSON.stringify(currentChunk),
+                            directory: Directory.External,
+                            encoding: Encoding.UTF8
+                        });
+                    }
+
+                    alert(`Backup Complete!\nSaved ${part} file(s) to:\nDocuments/${folder}/`);
+                } catch (e) {
+                    alert("Backup Error: " + e.message);
+                }
+            };
+
+            // Native Restore Helper with Metadata
+            const performNativeRestore = async () => {
+                if (!window.Capacitor) { alert("Restore requires Android App (Native Filesystem)."); return; }
+                try {
+                    const { Filesystem, Directory, Encoding } = window.Capacitor.Plugins;
+                    const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
+
+                    const ret = await Filesystem.readdir({
+                        path: `Documents/${folder}`,
+                        directory: Directory.External
+                    }).catch(e => ({ files: [] }));
+
+                    const groups = {};
+                    (ret.files || []).forEach(f => {
+                        const name = f.name;
+                        const m = name.match(/ShelfLife_Part\d+_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json/);
+                        if (m) {
+                            const ts = m[1];
+                            if (!groups[ts]) groups[ts] = 0;
+                            groups[ts]++;
+                        }
+                    });
+
+                    const choices = Object.keys(groups).sort().reverse();
+                    if (choices.length === 0) { alert(`No backups found in Documents/${folder}`); return; }
+
+                    const selection = prompt("Found Backups (YYYY-MM-DD_HH-mm-ss):\n" + choices.map((c, i) => `${i + 1}. ${c} (${groups[c]} parts)`).join('\n') + "\n\nEnter number to restore:");
+                    if (!selection) return;
+                    const index = parseInt(selection) - 1;
+                    if (isNaN(index) || index < 0 || index >= choices.length) return;
+
+                    const targetTs = choices[index];
+                    if (!confirm(`Restore ${targetTs}?\nWARNING: This will WIPE and REPLACE your current library.`)) return;
+
+                    await db.books.clear();
+
+                    const fileList = (ret.files || []).filter(f => f.name.includes(targetTs)).sort();
+
+                    let count = 0;
+                    for (const f of fileList) {
+                        const c = await Filesystem.readFile({
+                            path: `Documents/${folder}/${f.name}`,
+                            directory: Directory.External,
+                            encoding: Encoding.UTF8
+                        });
+                        const chunkData = JSON.parse(c.data);
+                        await db.books.bulkAdd(chunkData);
+                        count += chunkData.length;
+                    }
+
+                    // UPDATE METADATA
+                    localStorage.setItem('shelfLife_restore_meta', JSON.stringify({ name: targetTs, date: new Date().toLocaleString() }));
+
+                    alert(`Restored ${count} books from ${targetTs}.`);
+                    window.location.reload();
+
+                } catch (e) {
+                    alert("Restore Error: " + e.message);
+                }
             };
 
             return (
