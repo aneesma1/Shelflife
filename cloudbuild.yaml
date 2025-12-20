@@ -1,4 +1,8 @@
-steps:
+  # 0. Setup Artifact Bucket (Ensure it exists)
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
+    args: ['-c', 'gsutil mb gs://$PROJECT_ID-build-artifacts || echo "Bucket likely exists"']
+
   # 1. Install Dependencies
   - name: 'node:18'
     entrypoint: 'npm'
