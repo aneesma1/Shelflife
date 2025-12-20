@@ -1299,14 +1299,73 @@
             );
         };
 
+        // --- APP HEADER ---
+        const AppHeader = ({ title = "ShelfLife" }) => (
+            <div className="bg-blue-900 text-white p-4 shadow-md sticky top-0 z-50 flex items-center justify-between no-print">
+                <div className="flex items-center gap-3">
+                    <div className="bg-white/10 p-2 rounded-lg"><Icon name="Library" size={20} /></div>
+                    <div>
+                        <h1 className="font-bold text-lg leading-none">{title}</h1>
+                        <p className="text-[10px] text-blue-200 opacity-80">Personal Library Manager</p>
+                    </div>
+                </div>
+            </div>
+        );
+
+        // --- SETUP MODAL ---
+        const SetupModal = ({ onComplete }) => {
+            const [folder, setFolder] = useState('ShelfLife_Backups');
+
+            const handleSave = () => {
+                if (!folder.trim()) return alert("Please enter a folder name.");
+                localStorage.setItem('shelfLife_backupFolder', folder);
+                onComplete();
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-2xl animate-[fadeIn_0.3s_ease-out]">
+                        <div className="text-center mb-6">
+                            <div className="inline-block p-4 bg-blue-100 rounded-full text-blue-600 mb-3"><Icon name="Library" size={32} /></div>
+                            <h2 className="text-xl font-bold text-gray-800">Welcome to ShelfLife</h2>
+                            <p className="text-sm text-gray-500 mt-1">Let's set up your secure storage.</p>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Backup Folder Name</label>
+                                <input
+                                    className="w-full p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                    value={folder}
+                                    onChange={e => setFolder(e.target.value)}
+                                    placeholder="e.g. MyLibraryBackups"
+                                />
+                                <p className="text-[10px] text-gray-400 mt-1">This folder will be created in your Documents directory.</p>
+                            </div>
+
+                            <button onClick={handleSave} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg transform transition active:scale-95">
+                                Start Using App
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         // --- APP ROOT ---
         const App = () => {
             const [view, setView] = useState('library');
             const [books, setBooks] = useState([]);
             const [editBook, setEditBook] = useState(null);
             const [currency, setCurrency] = useState(() => localStorage.getItem('shelfLife_currency') || '₹');
+            const [showSetup, setShowSetup] = useState(false);
 
             useEffect(() => {
+                // Startup Check for Folder
+                if (!localStorage.getItem('shelfLife_backupFolder')) {
+                    setShowSetup(true);
+                }
+
                 const l = async () => setBooks(await db.books.toArray());
                 l();
                 setInterval(l, 1000);
@@ -1329,11 +1388,7 @@
                         // Request Permissions
                         (async () => {
                             try {
-                                // Camera
-                                // Note: html5-qrcode might handle this, but explicit request helps
-                                // Filesystem (for backups)
-                                // Simple read/write check
-                                const { Filesystem, Directory, Encoding } = window.Capacitor.Plugins;
+                                const { Filesystem, Directory } = window.Capacitor.Plugins;
                                 await Filesystem.readdir({ path: 'Documents', directory: Directory.External }).catch(() => { });
                             } catch (e) { console.log("Perms check silent fail", e); }
                         })();
@@ -1380,7 +1435,7 @@
                 localStorage.setItem('shelfLife_currency', currency);
             }, [currency]);
 
-            // Updated save logic with safety check
+            // Save Logic
             const save = async (d) => {
                 try {
                     if (d.id) await db.books.put(d);
@@ -1394,26 +1449,34 @@
 
             const deleteMulti = async (ids) => { if (confirm(`Delete ${ids.length} books?`)) { await db.books.bulkDelete(ids); } };
 
-            if (editBook || view === 'add') return <BookForm book={editBook} onSave={save} onCancel={() => { setEditBook(null); setView('library') }} onBarcodeFound={(b) => { setEditBook(b); setView('add') }} globalCurrency={currency} />;
+            if (editBook || view === 'add') return (
+                <div className="max-w-md mx-auto min-h-screen bg-gray-50">
+                    <AppHeader />
+                    <BookForm book={editBook} onSave={save} onCancel={() => { setEditBook(null); setView('library') }} onBarcodeFound={(b) => { setEditBook(b); setView('add') }} globalCurrency={currency} />
+                </div>
+            );
 
             return (
-                <>
-                    <div className="max-w-md mx-auto min-h-screen bg-gray-50 no-print">
-                        <main>
-                            {view === 'library' && <LibraryView books={books} onEdit={(b) => { setEditBook(b); }} onDeleteMulti={deleteMulti} />}
-                            {view === 'search' && <SlicerSearch books={books} onEdit={(b) => { setEditBook(b); setView('add') }} />}
-                            {view === 'reports' && <Dashboard books={books} />}
-                            {view === 'settings' && <Tools books={books} currency={currency} setCurrency={setCurrency} />}
-                        </main>
-                        <nav className="fixed bottom-0 w-full max-w-md bg-white border-t flex justify-around py-3 pb-safe z-30">
-                            <button onClick={() => setView('library')} className={view === 'library' ? 'text-blue-600' : 'text-gray-400'}><Icon name="Library" /><span className="block text-[10px]">Lib</span></button>
-                            <button onClick={() => setView('search')} className={view === 'search' ? 'text-blue-600' : 'text-gray-400'}><Icon name="Search" /><span className="block text-[10px]">Search</span></button>
-                            <button onClick={() => setView('add')} className={view === 'add' ? 'text-blue-600' : 'text-gray-400'}><Icon name="PlusSquare" /><span className="block text-[10px]">Add</span></button>
-                            <button onClick={() => setView('reports')} className={view === 'reports' ? 'text-blue-600' : 'text-gray-400'}><Icon name="BarChart2" /><span className="block text-[10px]">Stats</span></button>
-                            <button onClick={() => setView('settings')} className={view === 'settings' ? 'text-blue-600' : 'text-gray-400'}><Icon name="Settings" /><span className="block text-[10px]">Tools</span></button>
-                        </nav>
-                    </div>
-                </>
+                <div className="max-w-md mx-auto min-h-screen bg-gray-50 shadow-2xl relative overflow-hidden">
+                    {showSetup && <SetupModal onComplete={() => setShowSetup(false)} />}
+
+                    <AppHeader />
+
+                    <main className="p-4 pb-24 safe-area-top">
+                        {view === 'library' && <LibraryView books={books} onEdit={(b) => { setEditBook(b); }} onDeleteMulti={deleteMulti} />}
+                        {view === 'search' && <SlicerSearch books={books} onEdit={(b) => { setEditBook(b); setView('add') }} />}
+                        {view === 'reports' && <Dashboard books={books} />}
+                        {view === 'settings' && <Tools books={books} currency={currency} setCurrency={setCurrency} />}
+                    </main>
+
+                    <nav className="fixed bottom-0 w-full max-w-md bg-white border-t flex justify-around py-3 pb-safe z-30 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                        <button onClick={() => setView('library')} className={view === 'library' ? 'text-blue-600' : 'text-gray-400'}><Icon name="Library" /><span className="block text-[10px]">Lib</span></button>
+                        <button onClick={() => setView('search')} className={view === 'search' ? 'text-blue-600' : 'text-gray-400'}><Icon name="Search" /><span className="block text-[10px]">Search</span></button>
+                        <button onClick={() => setView('add')} className={view === 'add' ? 'text-blue-600' : 'text-gray-400'}><Icon name="PlusSquare" /><span className="block text-[10px]">Add</span></button>
+                        <button onClick={() => setView('reports')} className={view === 'reports' ? 'text-blue-600' : 'text-gray-400'}><Icon name="BarChart2" /><span className="block text-[10px]">Stats</span></button>
+                        <button onClick={() => setView('settings')} className={view === 'settings' ? 'text-blue-600' : 'text-gray-400'}><Icon name="Settings" /><span className="block text-[10px]">Tools</span></button>
+                    </nav>
+                </div>
             );
         };
 
