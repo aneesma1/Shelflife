@@ -1136,187 +1136,28 @@
                         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                             <h4 className="font-bold text-xs uppercase text-yellow-800 mb-2">Native Data Sync</h4>
                             <p className="text-[10px] text-yellow-700 mb-2">Save database backups directly to your device.</p>
-                            
+
                             {/* FOLDER SETTING */}
                             <div className="flex gap-2 mb-2 items-center">
                                 <label className="text-[10px] font-bold text-yellow-800">Folder:</label>
-                                <input 
-                                    className="flex-1 p-1 text-xs border rounded" 
-                                    placeholder="ShelfLife_Backups" 
+                                <input
+                                    className="flex-1 p-1 text-xs border rounded"
+                                    placeholder="ShelfLife_Backups"
                                     defaultValue={localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups'}
-                                    onBlur={(e) => localStorage.setItem('shelfLife_backupFolder', e.target.value || 'ShelfLife_Backups')} 
+                                    onBlur={(e) => localStorage.setItem('shelfLife_backupFolder', e.target.value || 'ShelfLife_Backups')}
                                 />
                             </div>
 
                             {/* CHUNKED BACKUP */}
-                            <button onClick={async () => {
-                                if (!window.Capacitor) { alert("Feature requires Android App."); return; }
-                                try {
-                                    const { Filesystem } = window.Capacitor.Plugins;
-                                    const allBooks = await db.books.toArray();
-                                    
-                                    const now = new Date();
-                                    const ts = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0') + '_' + String(now.getHours()).padStart(2,'0') + '-' + String(now.getMinutes()).padStart(2,'0') + '-' + String(now.getSeconds()).padStart(2,'0');
-                                    
-                                    const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
-                                    
-                                    // Ensure Folder
-                                    try { await Filesystem.mkdir({ path: `Documents/${folder}`, directory: Directory.External, recursive: true }); } catch(e){}
-
-                                    const TARGET_SIZE = 10 * 1024 * 1024; 
-                                    let part = 1;
-                                    let currentChunk = [];
-                                    let currentSize = 0;
-                                    
-                                    for (const book of allBooks) {
-                                        const s = JSON.stringify(book);
-                                        if (currentSize + s.length > TARGET_SIZE && currentChunk.length > 0) {
-                                            const fname = `ShelfLife_Part${part}_${ts}.json`;
-                                            await Filesystem.writeFile({
-                                                path: `Documents/${folder}/${fname}`,
-                                                data: JSON.stringify(currentChunk),
-                                                directory: Directory.External,
-                                                encoding: Encoding.UTF8,
-                                                recursive: true
-                                            });
-                                            part++;
-                                            currentChunk = [];
-                                            currentSize = 0;
-                                        }
-                                        currentChunk.push(book);
-                                        currentSize += s.length;
-                                    }
-                                    
-                                    if (currentChunk.length > 0) {
-                                        const fname = `ShelfLife_Part${part}_${ts}.json`;
-                                        await Filesystem.writeFile({
-                                            path: `Documents/${folder}/${fname}`,
-                                            data: JSON.stringify(currentChunk),
-                                            directory: Directory.External,
-                                            encoding: Encoding.UTF8,
-                                            recursive: true
-                                        });
-                                    }
-                                    
-                                    alert(`Backup Complete! Saved ${part} part(s) to Documents/${folder}/`);
-                                } catch (e) {
-                                    alert("Backup Error: " + e.message);
-                                }
-                            }} className="w-full py-2 bg-yellow-600 text-white rounded text-xs font-bold mb-2">Save Split Backup (Device)</button>
+                            <button onClick={performChunkedBackup} className="w-full py-2 bg-yellow-600 text-white rounded text-xs font-bold mb-2">Save Split Backup (Device)</button>
 
                             {/* FOLDER RESTORE */}
-                            <button onClick={async () => {
-                                if (!window.Capacitor) { alert("Feature requires Android App."); return; }
-                                try {
-                                    const { Filesystem } = window.Capacitor.Plugins;
-                                    const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
-                                    
-                                    const ret = await Filesystem.readdir({
-                                        path: `Documents/${folder}`,
-                                        directory: Directory.External
-                                    }).catch(e => ({ files: [] }));
-                                    
-                                    const groups = {};
-                                    (ret.files || []).forEach(f => {
-                                        const name = f.name;
-                                        const m = name.match(/ShelfLife_Part\d+_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json/);
-                                        if (m) {
-                                            const ts = m[1];
-                                            if (!groups[ts]) groups[ts] = 0;
-                                            groups[ts]++;
-                                        }
-                                    });
-                                    
-                                    const choices = Object.keys(groups).sort().reverse();
-                                    if (choices.length === 0) { alert(`No backups found in Documents/${folder}`); return; }
-                                    
-                                    const selection = prompt("Found Backups:\n" + choices.map((c,i) => `${i+1}. ${c} (${groups[c]} parts)`).join('\n') + "\n\nEnter number to restore:");
-                                    if (!selection) return;
-                                    const index = parseInt(selection) - 1;
-                                    if (isNaN(index) || index < 0 || index >= choices.length) return;
-                                    
-                                    const targetTs = choices[index];
-                                    if (!confirm(`Restore ${targetTs}? Wipes data.`)) return;
-                                    
-                                    await db.books.clear();
-                                    const fileList = (ret.files || []).filter(f => f.name.includes(targetTs));
-                                    
-                                    let count = 0;
-                                    for (const f of fileList) {
-                                        const c = await Filesystem.readFile({
-                                            path: `Documents/${folder}/${f.name}`,
-                                            directory: Directory.External,
-                                            encoding: Encoding.UTF8
-                                        });
-                                        const chunkData = JSON.parse(c.data);
-                                        await db.books.bulkAdd(chunkData);
-                                        count += chunkData.length;
-                                    }
-                                    
-                                    alert(`Restored ${count} books.`);
-                                    window.location.reload();
-                                    
-                                } catch (e) {
-                                    alert("Scan/Restore Error: " + e.message);
-                                }
-                            }} className="w-full py-2 bg-yellow-700 text-white rounded text-xs font-bold">Restore from Device Folder</button>
-                                        const m = name.match(/ShelfLife_Part\d+_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json/);
-                                        if (m) {
-                                            const ts = m[1];
-                                            if (!groups[ts]) groups[ts] = 0;
-                                            groups[ts]++;
-                                        }
-                                    });
-
-                                    const choices = Object.keys(groups).sort().reverse();
-                                    if (choices.length === 0) { alert("No backups found"); return; }
-
-                                    const selection = prompt("Found Backups:\n" + choices.map((c, i) => `${i + 1}. ${c} (${groups[c]} parts)`).join('\n') + "\n\nEnter number to restore:");
-                                    if (!selection) return;
-                                    const index = parseInt(selection) - 1;
-                                    if (isNaN(index) || index < 0 || index >= choices.length) return;
-
-                                    const targetTs = choices[index];
-                                    if (!confirm(`Restore ${targetTs}? Wipes data.`)) return;
-
-                                    await db.books.clear();
-                                    const fileList = ret.files.filter(f => f.name.includes(targetTs));
-
-                                    let count = 0;
-                                    for (const f of fileList) {
-                                        const c = await Filesystem.readFile({
-                                            path: `Documents/ShelfLife_Backups/${f.name}`,
-                                            directory: Directory.External,
-                                            encoding: Encoding.UTF8
-                                        });
-                                        const chunkData = JSON.parse(c.data);
-                                        await db.books.bulkAdd(chunkData);
-                                        count += chunkData.length;
-                                    }
-
-                                    alert(`Restored ${count} books.`);
-                                    window.location.reload();
-
-                                } catch (e) {
-                                    alert("Restore Error: " + e.message);
-                                }
-                            }} className="w-full py-2 bg-yellow-700 text-white rounded text-xs font-bold">Restore from Device Folder</button>
+                            <button onClick={performNativeRestore} className="w-full py-2 bg-yellow-700 text-white rounded text-xs font-bold">Restore from Device Folder</button>
                         </div>
 
                         <div className="space-y-2">
-                            <button onClick={backupFull} className="w-full py-3 bg-gray-800 text-white rounded font-bold text-sm flex justify-center gap-2"><Icon name="Download" /> Full Backup (Images)</button>
-                            <button onClick={backupText} className="w-full py-3 bg-gray-600 text-white rounded font-bold text-sm flex justify-center gap-2"><Icon name="FileText" /> Text-Only Backup (Lite)</button>
-
-                            <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-orange-200">
-                                <label className="py-3 bg-orange-100 text-orange-800 rounded font-bold text-center block text-xs cursor-pointer flex justify-center gap-1 items-center border border-orange-200 hover:bg-orange-200">
-                                    <Icon name="Upload" size={14} /> Full Restore
-                                    <input type="file" className="hidden" onChange={e => restore(e, 'full')} />
-                                </label>
-                                <label className="py-3 bg-orange-50 text-orange-600 rounded font-bold text-center block text-xs cursor-pointer flex justify-center gap-1 items-center border border-orange-200 hover:bg-orange-100">
-                                    <Icon name="FileText" size={14} /> Text Restore
-                                    <input type="file" className="hidden" onChange={e => restore(e, 'text')} />
-                                </label>
-                            </div>
+                            <button onClick={performChunkedBackup} className="w-full py-3 bg-gray-800 text-white rounded font-bold text-sm flex justify-center gap-2 shadow-lg hover:bg-gray-900"><Icon name="Save" /> Full Backup (Chunked & Safe)</button>
+                            <p className="text-[10px] text-gray-400 text-center italic">All backups are now saved to your device folder.</p>
                         </div>
                     </div>
                     <div className="bg-white p-4 rounded-xl shadow border">
