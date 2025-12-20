@@ -440,6 +440,45 @@
                 }
             };
 
+            const handleDocScan = async (field = 'pages') => {
+                if (!window.Capacitor) return alert("Native scan requires Android App.");
+                try {
+                    const { DocumentScanner } = window.Capacitor.Plugins;
+                    if (!DocumentScanner) return alert("Scanner Plugin Missing. Rebuild App.");
+
+                    const result = await DocumentScanner.scanDocument(); // Returns { scannedImages: [path, path] }
+
+                    if (result.scannedImages && result.scannedImages.length > 0) {
+                        // Assuming the plugin returns a file path, we need to read it to get base64 or usage
+                        // Note: Some plugins return Base64 directly depending on config.
+                        // For simplicity, let's assume we might need to read it if it's a path. 
+                        // However, `capacitor-document-scanner` usually returns URI. 
+                        // We will try to rely on Filesystem reading if it's a path or just use it.
+                        // Actually, most MLKit wrappers return file URIs.
+
+                        // We'll iterate and read each
+                        const { Filesystem } = window.Capacitor.Plugins;
+                        const newPages = [];
+                        for (const imgPath of result.scannedImages) {
+                            const f = await Filesystem.readFile({ path: imgPath });
+                            // f.data is base64 string
+                            newPages.push(`data:image/jpeg;base64,${f.data}`);
+                        }
+
+                        if (field === 'pages') {
+                            setForm(f => ({ ...f, pages: [...(f.pages || []), ...newPages] }));
+                            alert(`Added ${newPages.length} scanned pages.`);
+                        } else {
+                            // Front or Rear - take first image
+                            setForm(f => ({ ...f, [field]: newPages[0] }));
+                        }
+                    }
+                } catch (e) {
+                    console.error(e);
+                    alert("Scan Error: " + (e.message || "Unknown"));
+                }
+            };
+
             const handleBarcode = async (isbn) => {
                 setScanMode(false);
                 const exists = await db.books.where('isbn').equals(isbn).first();
@@ -469,19 +508,31 @@
             };
 
             const startVoice = (field) => {
-                if (!('webkitSpeechRecognition' in window)) return alert("Voice typing not supported");
-                const recognition = new window.webkitSpeechRecognition();
-                recognition.lang = (field === 'title' && form.lang !== 'en') ?
-                    (form.lang === 'ml' ? 'ml-IN' : form.lang === 'ar' ? 'ar-SA' : 'hi-IN') : 'en-US';
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SpeechRecognition) return alert("Voice typing not supported on this device/browser.");
 
-                recognition.onstart = () => setListeningField(field);
-                recognition.onend = () => setListeningField(null);
-                recognition.onresult = (event) => {
-                    const transcript = event.results[0][0].transcript;
-                    if (field === 'tags') setForm(f => ({ ...f, tags: transcript.split(/[\s,]+/).filter(Boolean) }));
-                    else setForm(f => ({ ...f, [field]: transcript }));
-                };
-                recognition.start();
+                try {
+                    const recognition = new SpeechRecognition();
+                    // Apply native language to Title ONLY
+                    const useNative = field === 'title' && form.lang !== 'en';
+                    recognition.lang = useNative ?
+                        (form.lang === 'ml' ? 'ml-IN' : form.lang === 'ar' ? 'ar-SA' : 'hi-IN') : 'en-US';
+
+                    recognition.onstart = () => setListeningField(field);
+                    recognition.onend = () => setListeningField(null);
+                    recognition.onerror = (e) => { console.error(e); setListeningField(null); alert("Voice Error: " + e.error); };
+                    recognition.onresult = (event) => {
+                        const transcript = event.results[0][0].transcript;
+                        if (field === 'tags') {
+                            const newTags = transcript.split(/[\s,]+/).filter(Boolean);
+                            setForm(f => ({ ...f, tags: [...(f.tags || []), ...newTags] }));
+                        }
+                        else setForm(f => ({ ...f, [field]: transcript }));
+                    };
+                    recognition.start();
+                } catch (e) {
+                    alert("Mic Error: " + e.message);
+                }
             };
 
             const saveCheck = async () => {
@@ -509,17 +560,47 @@
 
                         {/* GALLERY */}
                         <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
-                            <label className="flex-shrink-0 w-28 h-40 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center overflow-hidden">
-                                {form.front ? <img src={form.front} className="w-full h-full object-cover" /> : <div className="text-center text-gray-400"><Icon name="Camera" /><span className="text-[10px] block">Front</span></div>}
-                                <input type="file" className="hidden" onChange={e => handleImg(e, 'front')} capture="environment" accept="image/*" />
-                            </label>
-                            <label className="flex-shrink-0 w-28 h-40 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center overflow-hidden">
-                                {form.rear ? <img src={form.rear} className="w-full h-full object-cover" /> : <div className="text-center text-gray-400"><Icon name="Camera" /><span className="text-[10px] block">Rear</span></div>}
-                                <input type="file" className="hidden" onChange={e => handleImg(e, 'rear')} capture="environment" accept="image/*" />
-                            </label>
+                            {/* FRONT COVER */}
+                            <div className="flex-shrink-0 w-28 h-40 bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 relative overflow-hidden group">
+                                {form.front ? <img src={form.front} className="w-full h-full object-cover" /> : <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400"><Icon name="Maximize" /><span className="text-[10px]">Front</span></div>}
+
+                                {/* Scan Trigger */}
+                                <div className="absolute inset-0 z-10 cursor-pointer" onClick={() => handleDocScan('front')} title="Scan Front Cover"></div>
+
+                                {/* Manual Fallback */}
+                                <label className="absolute bottom-1 right-1 z-20 p-2 bg-white/90 rounded-full shadow text-blue-600 cursor-pointer hover:bg-blue-50">
+                                    <Icon name="Camera" size={12} />
+                                    <input type="file" className="hidden" onChange={e => handleImg(e, 'front')} capture="environment" accept="image/*" />
+                                </label>
+                            </div>
+
+                            {/* REAR COVER */}
+                            <div className="flex-shrink-0 w-28 h-40 bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 relative overflow-hidden group">
+                                {form.rear ? <img src={form.rear} className="w-full h-full object-cover" /> : <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400"><Icon name="Maximize" /><span className="text-[10px]">Rear</span></div>}
+
+                                {/* Scan Trigger */}
+                                <div className="absolute inset-0 z-10 cursor-pointer" onClick={() => handleDocScan('rear')} title="Scan Rear Cover"></div>
+
+                                {/* Manual Fallback */}
+                                <label className="absolute bottom-1 right-1 z-20 p-2 bg-white/90 rounded-full shadow text-blue-600 cursor-pointer hover:bg-blue-50">
+                                    <Icon name="Camera" size={12} />
+                                    <input type="file" className="hidden" onChange={e => handleImg(e, 'rear')} capture="environment" accept="image/*" />
+                                </label>
+                            </div>
                             {form.pages && form.pages.map((p, i) => (<div key={i} className="flex-shrink-0 w-28 h-40 bg-gray-100 rounded-lg border overflow-hidden"><img src={p} className="w-full h-full object-cover" /></div>))}
-                            <label className="flex-shrink-0 w-28 h-40 bg-white border-2 border-dashed border-blue-300 rounded-lg flex flex-col items-center justify-center text-blue-500">
-                                <Icon name="PlusSquare" /><span className="text-[10px] font-bold">Add Page</span>
+                            <label className="flex-shrink-0 w-28 h-40 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center overflow-hidden relative" onClick={handleDocScan}>
+                                <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-600 z-10 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer">
+                                    <Icon name="Maximize" size={24} />
+                                    <span className="text-[10px] font-bold mt-1">Scan Page</span>
+                                    <span className="text-[8px] text-blue-400">(Auto-Crop)</span>
+                                </div>
+                            </label>
+
+                            <label className="flex-shrink-0 w-28 h-40 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center overflow-hidden relative">
+                                {form.pages && form.pages.length > 0 ? <img src={form.pages[form.pages.length - 1]} className="w-full h-full object-cover" /> : null}
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/50 text-gray-400 z-10">
+                                    <Icon name="PlusSquare" /><span className="text-[10px] font-bold">Manual</span>
+                                </div>
                                 <input type="file" className="hidden" onChange={handlePageAdd} capture="environment" accept="image/*" />
                             </label>
                         </div>
@@ -1006,7 +1087,7 @@
             }, []);
 
             // Consolidated Chunked Backup Helper
-            const performChunkedBackup = async () => {
+            const performChunkedBackup = async (textOnly = false) => {
                 if (!window.Capacitor) { alert("Backup requires Android App (Native Filesystem)."); return; }
                 try {
                     const { Filesystem } = window.Capacitor.Plugins;
@@ -1023,13 +1104,13 @@
 
                     const TARGET_SIZE = 9 * 1024 * 1024; // 9MB safe limit for chunks
                     let part = 1;
-                    let currentChunk = [];
-                    let currentSize = 0;
+                    const suffix = textOnly ? '_TextOnly' : '';
 
-                    for (const book of allBooks) {
+                    for (const rawBook of allBooks) {
+                        const book = textOnly ? { ...rawBook, front: null, rear: null, thumb: null, pages: [] } : rawBook;
                         const s = JSON.stringify(book);
                         if (currentSize + s.length > TARGET_SIZE && currentChunk.length > 0) {
-                            const fname = `ShelfLife_Part${part}_${ts}.json`;
+                            const fname = `ShelfLife_Part${part}${suffix}_${ts}.json`;
                             await Filesystem.writeFile({
                                 path: `${folder}/${fname}`,
                                 data: JSON.stringify(currentChunk),
@@ -1045,7 +1126,7 @@
                     }
 
                     if (currentChunk.length > 0) {
-                        const fname = `ShelfLife_Part${part}_${ts}.json`;
+                        const fname = `ShelfLife_Part${part}${suffix}_${ts}.json`;
                         await Filesystem.writeFile({
                             path: `${folder}/${fname}`,
                             data: JSON.stringify(currentChunk),
@@ -1054,7 +1135,7 @@
                         });
                     }
 
-                    alert(`Backup Complete!\nSaved ${part} file(s) to:\n${baseStr}/${folder}/`);
+                    alert(`Backup (${textOnly ? 'Text Only' : 'Full'}) Complete!\nSaved ${part} file(s) to:\n${baseStr}/${folder}/`);
                 } catch (e) {
                     alert("Backup Error: " + e.message);
                 }
@@ -1069,15 +1150,22 @@
                     const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
                     const targetDir = Directory[baseStr] || Directory.Documents;
 
+                    // Confirm Source Folder
+                    const folderInput = prompt("Confirm Folder to Scan:", folder);
+                    if (!folderInput) return;
+                    // Update preference if changed
+                    if (folderInput !== folder) localStorage.setItem('shelfLife_backupFolder', folderInput);
+
                     const ret = await Filesystem.readdir({
-                        path: folder,
+                        path: folderInput,
                         directory: targetDir
                     }).catch(e => ({ files: [] }));
 
                     const groups = {};
                     (ret.files || []).forEach(f => {
                         const name = f.name;
-                        const m = name.match(/ShelfLife_Part\d+_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json/);
+                        // Match standard format AND TextOnly format
+                        const m = name.match(/ShelfLife_Part\d+(?:_TextOnly)?_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json/);
                         if (m) {
                             const ts = m[1];
                             if (!groups[ts]) groups[ts] = 0;
@@ -1086,9 +1174,9 @@
                     });
 
                     const choices = Object.keys(groups).sort().reverse();
-                    if (choices.length === 0) { alert(`No backups found in ${baseStr}/${folder}`); return; }
+                    if (choices.length === 0) { alert(`No backups found in ${baseStr}/${folderInput}`); return; }
 
-                    const selection = prompt("Found Backups (YYYY-MM-DD_HH-mm-ss):\n" + choices.map((c, i) => `${i + 1}. ${c} (${groups[c]} parts)`).join('\n') + "\n\nEnter number to restore:");
+                    const selection = prompt(`Found ${choices.length} Backup Sets in ${folderInput}:\n` + choices.map((c, i) => `${i + 1}. ${c} (${groups[c]} parts)`).join('\n') + "\n\nEnter number to restore:");
                     if (!selection) return;
                     const index = parseInt(selection) - 1;
                     if (isNaN(index) || index < 0 || index >= choices.length) return;
@@ -1103,7 +1191,7 @@
                     let count = 0;
                     for (const f of fileList) {
                         const c = await Filesystem.readFile({
-                            path: `${folder}/${f.name}`,
+                            path: `${folderInput}/${f.name}`,
                             directory: targetDir,
                             encoding: Encoding.UTF8
                         });
@@ -1120,6 +1208,50 @@
 
                 } catch (e) {
                     alert("Restore Error: " + e.message);
+                }
+            };
+
+            // Legacy/Single File Import
+            const handleLegacyImport = (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async (evt) => {
+                    try {
+                        const data = JSON.parse(evt.target.result);
+                        if (!Array.isArray(data)) throw new Error("Invalid JSON Format");
+                        if (!confirm(`Restore ${data.length} books from file "${file.name}"?\nWarning: This will REPLACE your library.`)) return;
+
+                        await db.books.clear();
+                        await db.books.bulkAdd(data);
+                        alert("Legacy Restore Complete!");
+                        window.location.reload();
+                    } catch (err) {
+                        alert("Import Failed: " + err.message);
+                    }
+                };
+                reader.readAsText(file);
+            };
+
+            // Test Folder Creation
+            const verifyFolder = async () => {
+                if (!window.Capacitor) return;
+                try {
+                    const { Filesystem } = window.Capacitor.Plugins;
+                    const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
+                    const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
+                    const targetDir = Directory[baseStr] || Directory.Documents;
+
+                    await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true });
+                    await Filesystem.writeFile({
+                        path: `${folder}/Test_Write.txt`,
+                        data: "Access Verified " + new Date().toISOString(),
+                        directory: targetDir,
+                        encoding: Encoding.UTF8
+                    });
+                    alert(`Success!\nFolder "${folder}" is writable in ${baseStr}.`);
+                } catch (e) {
+                    alert("Folder Access Failed: " + e.message);
                 }
             };
 
@@ -1159,14 +1291,12 @@
                     </div>
 
                     <div className="bg-white p-4 rounded-xl shadow border border-orange-100">
-                        <h3 className="font-bold mb-3 text-orange-800">Data Management</h3>
+                        <h3 className="font-bold mb-3 text-orange-800">Backup & Restore</h3>
                         {lastRestore && <div className="text-xs text-gray-500 mb-3 bg-gray-50 p-2 rounded border">Last Restored: <b>{lastRestore.name}</b><br />{lastRestore.date}</div>}
 
                         {/* DATA SYNC SETTINGS */}
                         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                            <h4 className="font-bold text-xs uppercase text-yellow-800 mb-2">Native Data Sync</h4>
-                            <p className="text-[10px] text-yellow-700 mb-2">Save database backups directly to your device.</p>
-
+                            <h4 className="font-bold text-xs uppercase text-yellow-800 mb-2">Storage Settings</h4>
                             <div className="flex gap-2 mb-2 items-center">
                                 <select
                                     className="p-1 text-xs border rounded bg-white text-yellow-900"
@@ -1183,18 +1313,24 @@
                                     onBlur={(e) => localStorage.setItem('shelfLife_backupFolder', e.target.value || 'ShelfLife_Backups')}
                                 />
                             </div>
+                            <button onClick={verifyFolder} className="w-full py-1 bg-yellow-100 text-yellow-800 rounded text-[10px] font-bold mb-2">Test Folder Creation</button>
 
-                            {/* CHUNKED BACKUP */}
-                            <button onClick={performChunkedBackup} className="w-full py-2 bg-yellow-600 text-white rounded text-xs font-bold mb-2">Save Split Backup (Device)</button>
+                            <hr className="border-yellow-200 my-3" />
 
+                            <h4 className="font-bold text-xs uppercase text-yellow-800 mb-2">Backups</h4>
+                            <div className="grid grid-cols-2 gap-2 mb-4">
+                                <button onClick={() => performChunkedBackup(false)} className="py-2 bg-yellow-600 text-white rounded text-xs font-bold flex flex-col items-center gap-1"><Icon name="Save" size={16} /> Full Backup<span className="text-[9px] opacity-80">(Images)</span></button>
+                                <button onClick={() => performChunkedBackup(true)} className="py-2 bg-yellow-700 text-white rounded text-xs font-bold flex flex-col items-center gap-1"><Icon name="FileText" size={16} /> Text-Only<span className="text-[9px] opacity-80">(No Images)</span></button>
+                            </div>
 
-                            {/* FOLDER RESTORE */}
-                            <button onClick={performNativeRestore} className="w-full py-2 bg-yellow-700 text-white rounded text-xs font-bold">Restore from Device Folder</button>
-                        </div>
-
-                        <div className="space-y-2">
-                            <button onClick={performChunkedBackup} className="w-full py-3 bg-gray-800 text-white rounded font-bold text-sm flex justify-center gap-2 shadow-lg hover:bg-gray-900"><Icon name="Save" /> Full Backup (Chunked & Safe)</button>
-                            <p className="text-[10px] text-gray-400 text-center italic">All backups are now saved to your device folder.</p>
+                            <h4 className="font-bold text-xs uppercase text-yellow-800 mb-2">Restore</h4>
+                            <div className="space-y-2">
+                                <button onClick={performNativeRestore} className="w-full py-2 bg-gray-700 text-white rounded text-xs font-bold flex items-center justify-center gap-2"><Icon name="RefreshCcw" /> Scan & Restore from Folder</button>
+                                <label className="w-full py-2 bg-gray-500 text-white rounded text-xs font-bold flex items-center justify-center gap-2 cursor-pointer">
+                                    <Icon name="Upload" /> Restore Legacy JSON File
+                                    <input type="file" onChange={handleLegacyImport} accept=".json" className="hidden" />
+                                </label>
+                            </div>
                         </div>
                     </div>
                     <div className="bg-white p-4 rounded-xl shadow border">
@@ -1276,6 +1412,7 @@
         // --- SETUP MODAL ---
         const SetupModal = ({ onComplete }) => {
             const [folder, setFolder] = useState('ShelfLife_Backups');
+            const [base, setBase] = useState('DOCUMENTS');
             const [status, setStatus] = useState('');
 
             const requestPerms = async () => {
@@ -1285,26 +1422,37 @@
                     setStatus('Requesting permissions...');
                     try { await Filesystem.requestPermissions(); } catch (e) { }
                     try { await Camera.requestPermissions(); } catch (e) { }
-                    // Test Create
+
+                    // Save Prefs
+                    localStorage.setItem('shelfLife_backupFolder', folder);
+                    localStorage.setItem('shelfLife_backupBase', base);
+
+                    // Test Create with Force Write
+                    const targetDir = Directory[base] || Directory.Documents;
                     try {
                         await Filesystem.mkdir({
-                            path: `Documents/${folder}`,
-                            directory: Directory.External,
+                            path: folder,
+                            directory: targetDir,
                             recursive: true
                         });
-                        setStatus('Permissions Granted & Folder Ready!');
+                        // Create a test file to REALLY verify write access
+                        await Filesystem.writeFile({
+                            path: `${folder}/.test_marker`,
+                            data: 'Setup Complete',
+                            directory: targetDir,
+                            encoding: Encoding.UTF8
+                        });
+                        // Clean up
+                        try { await Filesystem.deleteFile({ path: `${folder}/.test_marker`, directory: targetDir }); } catch (e) { }
+
+                        setStatus('Permissions Granted & Folder Verified!');
                     } catch (e) {
                         setStatus('Error: ' + e.message);
+                        alert("Folder Creation Failed.\nTry changing 'Storage Location' to External, or use a different folder name.");
                     }
                 } catch (e) {
                     setStatus('Setup Error: ' + e.message);
                 }
-            };
-
-            const handleSave = () => {
-                if (!folder.trim()) return alert("Please enter a folder name.");
-                localStorage.setItem('shelfLife_backupFolder', folder);
-                onComplete();
             };
 
             return (
@@ -1318,22 +1466,28 @@
 
                         <div className="space-y-4">
                             <div>
-                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Backup Folder Name</label>
-                                <input
-                                    className="w-full p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                                    value={folder}
-                                    onChange={e => setFolder(e.target.value)}
-                                    placeholder="e.g. MyLibraryBackups"
-                                />
-                                <p className="text-[10px] text-gray-400 mt-1">This folder will be created in your Documents directory.</p>
+                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Storage Location</label>
+                                <div className="flex gap-2">
+                                    <select className="p-3 border rounded-lg bg-gray-50 text-xs font-bold" value={base} onChange={e => setBase(e.target.value)}>
+                                        <option value="DOCUMENTS">Documents/</option>
+                                        <option value="EXTERNAL_STORAGE">External/</option>
+                                    </select>
+                                    <input
+                                        className="flex-1 p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                        value={folder}
+                                        onChange={e => setFolder(e.target.value)}
+                                        placeholder="FolderName"
+                                    />
+                                </div>
+                                <p className="text-[10px] text-gray-400 mt-1">Files will be saved to: {base}/{folder}/</p>
                             </div>
 
                             <button onClick={requestPerms} className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg border border-gray-300 text-xs">
-                                🔓 Grant Storage Permissions
+                                🔓 Grant Storage Permissions & Test
                             </button>
-                            {status && <div className="text-center text-[10px] font-bold text-blue-600 bg-blue-50 p-1 rounded">{status}</div>}
+                            {status && <div className={`text-center text-[10px] font-bold p-1 rounded ${status.includes('Error') ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50'}`}>{status}</div>}
 
-                            <button onClick={handleSave} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg transform transition active:scale-95">
+                            <button onClick={onComplete} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg transform transition active:scale-95">
                                 Start Using App
                             </button>
                         </div>
