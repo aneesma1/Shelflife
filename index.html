@@ -440,13 +440,13 @@
                 }
             };
 
-            const handleDocScan = async (field = 'pages') => {
+            const handleDocScan = async (field = 'pages') => { // MLKit Updated
                 if (!window.Capacitor) return alert("Native scan requires Android App.");
                 try {
                     const { DocumentScanner } = window.Capacitor.Plugins;
                     if (!DocumentScanner) return alert("Scanner Plugin Missing. Rebuild App.");
 
-                    const result = await DocumentScanner.scanDocument(); // Returns { scannedImages: [path, path] }
+                    const result = await DocumentScanner.scanDocument();
 
                     if (result.scannedImages && result.scannedImages.length > 0) {
                         // Assuming the plugin returns a file path, we need to read it to get base64 or usage
@@ -459,8 +459,9 @@
                         // We'll iterate and read each
                         const { Filesystem } = window.Capacitor.Plugins;
                         const newPages = [];
-                        for (const imgPath of result.scannedImages) {
-                            const f = await Filesystem.readFile({ path: imgPath });
+                        for (const imgObj of result.scannedImages) {
+                             const p = (imgObj && imgObj.path) ? imgObj.path : imgObj;
+                             const f = await Filesystem.readFile({ path: p });
                             // f.data is base64 string
                             newPages.push(`data:image/jpeg;base64,${f.data}`);
                         }
