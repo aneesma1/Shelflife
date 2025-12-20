@@ -179,6 +179,21 @@
             })
         };
 
+        // Initialize Capacitor Enums globally for script usage
+        const Directory = {
+            Documents: 'DOCUMENTS',
+            Data: 'DATA',
+            Cache: 'CACHE',
+            External: 'EXTERNAL', // often maps to generic external storage
+            ExternalStorage: 'EXTERNAL_STORAGE' // Android specific
+        };
+
+        const Encoding = {
+            UTF8: 'utf8',
+            ASCII: 'ascii',
+            UTF16: 'utf16'
+        };
+
         const ExportUtils = {
             getTimestamp: () => {
                 const now = new Date();
@@ -187,14 +202,29 @@
             download: async (content, name, mimeType) => {
                 if (window.Capacitor) {
                     try {
-                        const { Filesystem, Directory, Encoding } = window.Capacitor.Plugins;
+                        const { Filesystem } = window.Capacitor.Plugins;
+                        // Use user preference or default
+                        const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
+                        // Ensure folder exists (careful with Documents root)
+                        if (folder !== '') {
+                            try {
+                                await Filesystem.mkdir({
+                                    path: `Documents/${folder}`,
+                                    directory: Directory.External,
+                                    recursive: true
+                                });
+                            } catch (e) { } // Exists or error
+                        }
+
+                        const cleanPath = folder ? `Documents/${folder}/${name}` : `Documents/${name}`;
+
                         await Filesystem.writeFile({
-                            path: `Documents/${name}`,
+                            path: cleanPath,
                             data: content,
                             directory: Directory.External,
                             encoding: Encoding.UTF8
                         });
-                        alert(`Saved to Documents/${name}`);
+                        alert(`Saved to ${cleanPath}`);
                     } catch (e) {
                         // Fallback to clipboard if write fails
                         console.error(e);
@@ -205,7 +235,9 @@
                     try {
                         let dataUri = '';
                         if (mimeType === 'application/json' || mimeType.includes('text')) {
-                            const base64 = btoa(unescape(encodeURIComponent(content)));
+                            // Use UTF-8 BOM only for CSV to assist Excel opening
+                            const prefix = mimeType.includes('csv') ? "\uFEFF" : "";
+                            const base64 = btoa(unescape(encodeURIComponent(prefix + content)));
                             dataUri = `data:${mimeType};base64,${base64}`;
                         } else {
                             dataUri = content;
