@@ -480,15 +480,10 @@
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
                 if (!SpeechRecognition) return alert("Voice typing not supported on this device.");
 
-                // 3. Explicit Permission Request (Triggers System Prompt)
-                try {
-                    await navigator.mediaDevices.getUserMedia({ audio: true });
-                } catch (err) {
-                    console.error("Mic Permission Blocked:", err);
-                    return alert("Microphone blocked.\n\nPlease go to:\nSettings > Apps > Shelflife > Permissions\nand Allow Microphone.");
-                }
+                // 3. Skip Explicit Permission Request (It causes false blocks in WebView)
+                // We rely on the App Runtime Permission having been granted by the user in Settings.
 
-                // 4. Start Recognition
+                // 4. Start Recognition DIRECTLY
                 try {
                     const recognition = new SpeechRecognition();
 
