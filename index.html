@@ -860,6 +860,17 @@
             const [viewMode, setViewMode] = useState('grid');
             const [search, setSearch] = useState({ tags: [], query: '' });
 
+            const suggestions = useMemo(() => {
+                const s = new Set();
+                books.forEach(b => {
+                    if (b.title) s.add(b.title);
+                    if (b.author) s.add(b.author);
+                    if (b.publisher) s.add(b.publisher);
+                    if (b.owner) s.add(b.owner);
+                });
+                return [...s].sort();
+            }, [books]);
+
             const sorted = useMemo(() => {
                 const res = books.filter(b => {
                     // TEXT SEARCH
@@ -925,8 +936,12 @@
                                     className="w-full p-2 pl-8 border rounded"
                                     placeholder="Search Title, Author, ISBN..."
                                     value={search.query}
+                                    list="lib-suggestions"
                                     onChange={e => setSearch({ ...search, query: e.target.value })}
                                 />
+                                <datalist id="lib-suggestions">
+                                    {suggestions.map((s, i) => <option key={i} value={s} />)}
+                                </datalist>
                             </div>
                         </div>
                     </div>
