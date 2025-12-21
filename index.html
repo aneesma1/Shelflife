@@ -881,6 +881,11 @@
                             (b.author || '').toLowerCase().includes(q) ||
                             (b.isbn || '').includes(q) ||
                             (b.tags || []).some(t => t.toLowerCase().includes(q)) ||
+                            (b.owner || '').toLowerCase().includes(q) ||
+                            (b.building || '').toLowerCase().includes(q) ||
+                            (b.shelf || '').toLowerCase().includes(q) ||
+                            (b.phonetic || '').toLowerCase().includes(q) ||
+                            (b.pub_year || '').includes(q) ||
                             (b.publisher || '').toLowerCase().includes(q);
                         if (!match) return false;
                     }
