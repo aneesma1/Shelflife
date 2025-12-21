@@ -471,19 +471,41 @@
             };
 
             const startVoice = async (field) => {
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                if (!SpeechRecognition) return alert("Voice typing not supported on this device/browser.");
+                // 1. Connectivity Check
+                if (!navigator.onLine) {
+                    return alert("No Internet Connection.\nVoice input requires an active internet connection.");
+                }
 
+                // 2. Check Browser Support
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SpeechRecognition) return alert("Voice typing not supported on this device.");
+
+                // 3. Explicit Permission Request (Triggers System Prompt)
+                try {
+                    await navigator.mediaDevices.getUserMedia({ audio: true });
+                } catch (err) {
+                    console.error("Mic Permission Blocked:", err);
+                    return alert("Microphone blocked.\n\nPlease go to:\nSettings > Apps > Shelflife > Permissions\nand Allow Microphone.");
+                }
+
+                // 4. Start Recognition
                 try {
                     const recognition = new SpeechRecognition();
-                    // Apply native language to Title ONLY
+
+                    // Language Logic: Title uses Native (if selected), others force English
                     const useNative = field === 'title' && form.lang !== 'en';
                     recognition.lang = useNative ?
                         (form.lang === 'ml' ? 'ml-IN' : form.lang === 'ar' ? 'ar-SA' : 'hi-IN') : 'en-US';
 
                     recognition.onstart = () => setListeningField(field);
                     recognition.onend = () => setListeningField(null);
-                    recognition.onerror = (e) => { console.error(e); setListeningField(null); alert("Voice Error: " + e.error); };
+                    recognition.onerror = (e) => {
+                        setListeningField(null);
+                        if (e.error === 'no-speech') return; // Ignore silence
+                        if (e.error === 'not-allowed') return alert("Microphone access denied.");
+                        if (e.error === 'network') return alert("Network error. Please check your connection.");
+                        console.error("Voice Error:", e.error);
+                    };
                     recognition.onresult = (event) => {
                         const transcript = event.results[0][0].transcript;
                         if (field === 'tags') {
