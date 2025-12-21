@@ -867,6 +867,7 @@
                     if (b.author) s.add(b.author);
                     if (b.publisher) s.add(b.publisher);
                     if (b.owner) s.add(b.owner);
+                    if (b.tags) b.tags.forEach(t => s.add(t));
                 });
                 return [...s].sort();
             }, [books]);
@@ -879,6 +880,7 @@
                         const match = (b.title || '').toLowerCase().includes(q) ||
                             (b.author || '').toLowerCase().includes(q) ||
                             (b.isbn || '').includes(q) ||
+                            (b.tags || []).some(t => t.toLowerCase().includes(q)) ||
                             (b.publisher || '').toLowerCase().includes(q);
                         if (!match) return false;
                     }
