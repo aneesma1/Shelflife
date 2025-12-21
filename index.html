@@ -440,45 +440,7 @@
                 }
             };
 
-            const handleDocScan = async (field = 'pages') => { // MLKit Updated
-                if (!window.Capacitor) return alert("Native scan requires Android App.");
-                try {
-                    const { DocumentScanner } = window.Capacitor.Plugins;
-                    if (!DocumentScanner) return alert("Scanner Plugin Missing. Rebuild App.");
 
-                    const result = await DocumentScanner.scanDocument();
-
-                    if (result.scannedImages && result.scannedImages.length > 0) {
-                        // Assuming the plugin returns a file path, we need to read it to get base64 or usage
-                        // Note: Some plugins return Base64 directly depending on config.
-                        // For simplicity, let's assume we might need to read it if it's a path. 
-                        // However, `capacitor-document-scanner` usually returns URI. 
-                        // We will try to rely on Filesystem reading if it's a path or just use it.
-                        // Actually, most MLKit wrappers return file URIs.
-
-                        // We'll iterate and read each
-                        const { Filesystem } = window.Capacitor.Plugins;
-                        const newPages = [];
-                        for (const imgObj of result.scannedImages) {
-                            const p = (imgObj && imgObj.path) ? imgObj.path : imgObj;
-                            const f = await Filesystem.readFile({ path: p });
-                            // f.data is base64 string
-                            newPages.push(`data:image/jpeg;base64,${f.data}`);
-                        }
-
-                        if (field === 'pages') {
-                            setForm(f => ({ ...f, pages: [...(f.pages || []), ...newPages] }));
-                            alert(`Added ${newPages.length} scanned pages.`);
-                        } else {
-                            // Front or Rear - take first image
-                            setForm(f => ({ ...f, [field]: newPages[0] }));
-                        }
-                    }
-                } catch (e) {
-                    console.error(e);
-                    alert("Scan Error: " + (e.message || "Unknown"));
-                }
-            };
 
             const handleBarcode = async (isbn) => {
                 setScanMode(false);
@@ -511,14 +473,6 @@
             const startVoice = async (field) => {
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
                 if (!SpeechRecognition) return alert("Voice typing not supported on this device/browser.");
-
-                // Request Mic Permission explicitly for WebView
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    stream.getTracks().forEach(t => t.stop());
-                } catch (e) {
-                    return alert("Microphone blocked. Please enable Audio permissions in Android Settings for this app.");
-                }
 
                 try {
                     const recognition = new SpeechRecognition();
@@ -572,13 +526,7 @@
                             {/* FRONT COVER */}
                             <div className="flex-shrink-0 w-28 h-40 bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 relative overflow-hidden group">
                                 {form.front ? <img src={form.front} className="w-full h-full object-cover" /> : <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400"><Icon name="Maximize" /><span className="text-[10px]">Front</span></div>}
-
-                                {/* Scan Trigger */}
-                                <div className="absolute inset-0 z-10 cursor-pointer" onClick={() => handleDocScan('front')} title="Scan Front Cover"></div>
-
-                                {/* Manual Fallback */}
-                                <label className="absolute bottom-1 right-1 z-20 p-2 bg-white/90 rounded-full shadow text-blue-600 cursor-pointer hover:bg-blue-50">
-                                    <Icon name="Camera" size={12} />
+                                <label className="absolute inset-0 cursor-pointer flex items-center justify-center bg-transparent group-hover:bg-black/10 transition-colors">
                                     <input type="file" className="hidden" onChange={e => handleImg(e, 'front')} capture="environment" accept="image/*" />
                                 </label>
                             </div>
@@ -586,30 +534,24 @@
                             {/* REAR COVER */}
                             <div className="flex-shrink-0 w-28 h-40 bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 relative overflow-hidden group">
                                 {form.rear ? <img src={form.rear} className="w-full h-full object-cover" /> : <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400"><Icon name="Maximize" /><span className="text-[10px]">Rear</span></div>}
-
-                                {/* Scan Trigger */}
-                                <div className="absolute inset-0 z-10 cursor-pointer" onClick={() => handleDocScan('rear')} title="Scan Rear Cover"></div>
-
-                                {/* Manual Fallback */}
-                                <label className="absolute bottom-1 right-1 z-20 p-2 bg-white/90 rounded-full shadow text-blue-600 cursor-pointer hover:bg-blue-50">
-                                    <Icon name="Camera" size={12} />
+                                <label className="absolute inset-0 cursor-pointer flex items-center justify-center bg-transparent group-hover:bg-black/10 transition-colors">
                                     <input type="file" className="hidden" onChange={e => handleImg(e, 'rear')} capture="environment" accept="image/*" />
                                 </label>
                             </div>
-                            {form.pages && form.pages.map((p, i) => (<div key={i} className="flex-shrink-0 w-28 h-40 bg-gray-100 rounded-lg border overflow-hidden"><img src={p} className="w-full h-full object-cover" /></div>))}
-                            <label className="flex-shrink-0 w-28 h-40 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center overflow-hidden relative" onClick={handleDocScan}>
-                                <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-600 z-10 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer">
-                                    <Icon name="Maximize" size={24} />
-                                    <span className="text-[10px] font-bold mt-1">Scan Page</span>
-                                    <span className="text-[8px] text-blue-400">(Auto-Crop)</span>
-                                </div>
-                            </label>
+                        </div>
 
-                            <label className="flex-shrink-0 w-28 h-40 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center overflow-hidden relative">
-                                {form.pages && form.pages.length > 0 ? <img src={form.pages[form.pages.length - 1]} className="w-full h-full object-cover" /> : null}
-                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/50 text-gray-400 z-10">
-                                    <Icon name="PlusSquare" /><span className="text-[10px] font-bold">Manual</span>
+                        {/* PAGES */}
+                        <div className="flex gap-2 overflow-x-auto pb-2">
+                            {(form.pages || []).map((p, i) => (
+                                <div key={i} className="flex-shrink-0 w-28 h-40 relative group">
+                                    <img src={p} className="w-full h-full object-cover rounded-lg border" />
+                                    <button onClick={() => setForm(f => ({ ...f, pages: f.pages.filter((_, idx) => idx !== i) }))} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1"><Icon name="X" size={12} /></button>
                                 </div>
+                            ))}
+                            {/* Manual Add Page */}
+                            <label className="flex-shrink-0 w-28 h-40 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center overflow-hidden relative cursor-pointer hover:bg-gray-50">
+                                <Icon name="PlusSquare" className="text-gray-400" />
+                                <span className="text-[10px] font-bold text-gray-400 mt-1">Add Page</span>
                                 <input type="file" className="hidden" onChange={handlePageAdd} capture="environment" accept="image/*" />
                             </label>
                         </div>
@@ -626,7 +568,6 @@
                             <VoiceInput label="Phonetic (Manual)" field="phonetic" value={form.phonetic} onChange={(e) => handleChange('phonetic', e.target.value)} onVoice={() => startVoice('phonetic')} isListening={listeningField === 'phonetic'} lang="en" />
                             <VoiceInput label="ISBN" field="isbn" value={form.isbn} onChange={(e) => handleChange('isbn', e.target.value)} onVoice={() => startVoice('isbn')} isListening={listeningField === 'isbn'} lang="en" />
 
-                            {/* ADDED MIC ICONS */}
                             <div className="relative">
                                 <AutoSuggestInput label="Author" field="author" value={form.author} onChange={(e) => handleChange('author', e.target.value)} />
                                 <button type="button" onClick={() => startVoice('author')} className={`absolute right-2 bottom-3 p-1 rounded-full ${listeningField === 'author' ? 'bg-red-500 text-white' : 'text-gray-400'}`}><Icon name="Mic" size={20} /></button>
