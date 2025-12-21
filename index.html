@@ -13,13 +13,13 @@
     <link rel="manifest"
         href="data:application/manifest+json;base64,ewogICAgIm5hbWUiOiAiU2hlbGZMaWZlIFVsdGltYXRlIiwKICAgICJzaG9ydF9uYW1lIjogIlNoZWxZTGlmZSIsCiAgICAic3RhcnRfdXJsIjogIi4iLAogICAgImRpc3BsYXkiOiAic3RhbmRhbG9uZSIsCiAgICAiYmFja2dyb3VuZF9jb2xvciI6ICIjZjNmNGY2IiwKICAgICJ0aGVtZV9jb2xvciI6ICIjMjU2M2ViIiwKICAgICJpY29ucyI6IFtdCn0=">
 
-    <!-- CORE LIBRARIES -->
-    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.js"></script>
-    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <!-- OFFLINE LIBRARIES (Downloaded via Cloud Build) -->
+    <script src="libs/react.js"></script>
+    <script src="libs/react-dom.js"></script>
+    <script src="libs/babel.min.js"></script>
+    <script src="libs/tailwindcss.js"></script>
+    <script src="libs/dexie.js"></script>
+    <script src="libs/html5-qrcode.min.js"></script>
 
     <!-- FONTS -->
     <link
@@ -460,8 +460,8 @@
                         const { Filesystem } = window.Capacitor.Plugins;
                         const newPages = [];
                         for (const imgObj of result.scannedImages) {
-                             const p = (imgObj && imgObj.path) ? imgObj.path : imgObj;
-                             const f = await Filesystem.readFile({ path: p });
+                            const p = (imgObj && imgObj.path) ? imgObj.path : imgObj;
+                            const f = await Filesystem.readFile({ path: p });
                             // f.data is base64 string
                             newPages.push(`data:image/jpeg;base64,${f.data}`);
                         }
@@ -508,9 +508,17 @@
                 }
             };
 
-            const startVoice = (field) => {
+            const startVoice = async (field) => {
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
                 if (!SpeechRecognition) return alert("Voice typing not supported on this device/browser.");
+
+                // Request Mic Permission explicitly for WebView
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    stream.getTracks().forEach(t => t.stop());
+                } catch (e) {
+                    return alert("Microphone blocked. Please enable Audio permissions in Android Settings for this app.");
+                }
 
                 try {
                     const recognition = new SpeechRecognition();
@@ -854,6 +862,15 @@
 
             const sorted = useMemo(() => {
                 const res = books.filter(b => {
+                    // TEXT SEARCH
+                    if (search.query) {
+                        const q = search.query.toLowerCase();
+                        const match = (b.title || '').toLowerCase().includes(q) ||
+                            (b.author || '').toLowerCase().includes(q) ||
+                            (b.isbn || '').includes(q) ||
+                            (b.publisher || '').toLowerCase().includes(q);
+                        if (!match) return false;
+                    }
                     // TAG FILTER
                     if (search.tags && search.tags.length > 0) {
                         const bTags = b.tags || [];
@@ -899,11 +916,18 @@
                             options={[...new Set(books.flatMap(b => b.tags || []))].sort()}
                             value={search.tags}
                             onChange={tags => setSearch({ ...search, tags })}
-                            placeholder="Search tags (e.g. history)..."
+                            placeholder="Filter by tags..."
                         />
-                        {/* Text Fallback / Combined Search */}
-                        <div className="mt-2 text-xs flex gap-2 overflow-x-auto">
-                            {/* Auto-chips from content can go here if we want 'Quick Filters' */}
+                        <div className="mt-2 text-xs flex gap-2">
+                            <div className="relative flex-1">
+                                <Icon name="Search" className="absolute left-2 top-2 text-gray-400" size={14} />
+                                <input
+                                    className="w-full p-2 pl-8 border rounded"
+                                    placeholder="Search Title, Author, ISBN..."
+                                    value={search.query}
+                                    onChange={e => setSearch({ ...search, query: e.target.value })}
+                                />
+                            </div>
                         </div>
                     </div>
 

@@ -9,22 +9,35 @@ steps:
     entrypoint: 'npm'
     args: ['install', '--legacy-peer-deps']
 
-  # 2. Prepare Web Assets (Create www folder)
+  # 2. Prepare Web Assets (Create www folder & Download Libs for Offline)
   - name: 'ubuntu'
-    args: ['bash', '-c', 'mkdir -p www && cp index.html www/']
+    args: 
+      - 'bash'
+      - '-c'
+      - |
+        mkdir -p www/libs
+        cp index.html www/
+        cd www/libs
+        apt-get update && apt-get install -y curl
+        curl -L -o react.js https://unpkg.com/react@18/umd/react.production.min.js
+        curl -L -o react-dom.js https://unpkg.com/react-dom@18/umd/react-dom.production.min.js
+        curl -L -o babel.min.js https://unpkg.com/@babel/standalone/babel.min.js
+        curl -L -o tailwindcss.js https://cdn.tailwindcss.com
+        curl -L -o dexie.js https://unpkg.com/dexie@3.2.4/dist/dexie.min.js
+        curl -L -o html5-qrcode.min.js https://unpkg.com/html5-qrcode
 
   # 3. Add Android Platform (Generates android/ folder)
   - name: 'node:18'
     entrypoint: 'npx'
     args: ['cap', 'add', 'android']
 
-  # 3.5 Inject Permissions into AndroidManifest.xml
+  # 3.5 Inject Permissions & LargeHeap into AndroidManifest.xml
   - name: 'ubuntu'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        sed -i 's|<application|<uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <application|g' android/app/src/main/AndroidManifest.xml
+        sed -i 's|<application|<uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <application android:largeHeap="true"|g' android/app/src/main/AndroidManifest.xml
 
   # 4. Sync Assets (Copies www to android/app/src/main/assets/public)
   - name: 'node:18'
