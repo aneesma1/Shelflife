@@ -256,7 +256,7 @@
                     }
                 }
             },
-            csv: (books, type, specificFolder = null, specificBase = null) => {
+            csv: (books, filenamePrefix = "ShelfLife_Export", specificFolder = null, specificBase = null) => {
                 const maxTags = books.reduce((max, b) => Math.max(max, (b.tags || []).length), 0);
                 let header = "Title,Author,Publisher,Year,Pages,Condition,Price,Currency,Owner,Location,ISBN,Status";
                 for (let i = 1; i <= maxTags; i++) header += `,Tag_${i}`;
@@ -267,7 +267,11 @@
                     const tagCells = Array.from({ length: maxTags }, (_, i) => `"${(tags[i] || '').replace(/"/g, '""')}"`).join(',');
                     return `${core},${tagCells}`;
                 }).join('\n');
-                ExportUtils.download("\uFEFF" + header + rows, `ShelfLife_Export_${ExportUtils.getTimestamp()}.csv`, "text/csv;charset=utf-8", specificFolder, specificBase);
+
+                // Sanitize filename
+                const safePrefix = filenamePrefix.replace(/[^a-z0-9_]/gi, '_');
+                const timestamp = ExportUtils.getTimestamp().replace(/[-:]/g, ''); // Compact timestamp
+                ExportUtils.download("\uFEFF" + header + rows, `${safePrefix}_${timestamp}.csv`, "text/csv;charset=utf-8", specificFolder, specificBase);
             },
             htmlText: (books, type, title = "Library Inventory", specificFolder = null, specificBase = null) => {
                 let html = `<html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;padding:20px;} table{width:100%;border-collapse:collapse;} th,td{border:1px solid #ddd;padding:8px;} th{background:#f3f3f3;} tr:nth-child(even){background:#f9f9f9;}</style></head><body><h1>${title}</h1><table><tr><th>Title</th><th>Author</th><th>Publisher</th><th>Year</th><th>Loc</th><th>Cond</th><th>Price</th></tr>${books.map(b => `<tr><td>${b.title}</td><td>${b.author}</td><td>${b.publisher}</td><td>${b.pub_year}</td><td>${b.building} ${b.shelf}</td><td>${b.condition}</td><td>${b.currency || ''} ${b.price}</td></tr>`).join('')}</table></body></html>`;
@@ -471,37 +475,40 @@
             };
 
             let activeRecognition = null;
+            let voiceTimeout = null;
+
             const stopVoice = () => {
                 if (activeRecognition) {
                     try { activeRecognition.stop(); } catch (e) { }
                     activeRecognition = null;
                 }
+                if (voiceTimeout) {
+                    clearTimeout(voiceTimeout);
+                    voiceTimeout = null;
+                }
                 setListeningField(null);
             };
 
             const startVoice = async (field) => {
-                // 0. Toggle Logic: If clicking same mic while active, STOP it.
+                // 0. Toggle Logic
                 if (listeningField === field) {
                     stopVoice();
                     return;
                 }
-                // Stop any other active session before starting new one
                 stopVoice();
 
                 if (!navigator.onLine) return alert("No Internet Connection.");
-
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
                 if (!SpeechRecognition) return alert("Not supported.");
-
-                // Skip manual permission check (rely on OS)
 
                 try {
                     const recognition = new SpeechRecognition();
                     activeRecognition = recognition;
 
-                    // CRITICAL CONFIG FOR ANDROID
-                    recognition.continuous = false; // Stop after one phrase (prevents freezing)
-                    recognition.interimResults = false; // Only final results
+                    // CONFIG ROUND 7: INTERIM RESULTS (Fixes "Red Mic / No Result" bug)
+                    // We enable interim results to keep the audio stream active and processed
+                    recognition.continuous = false;
+                    recognition.interimResults = true;
                     recognition.maxAlternatives = 1;
 
                     // Language Logic
@@ -509,31 +516,44 @@
                     recognition.lang = useNative ?
                         (form.lang === 'ml' ? 'ml-IN' : form.lang === 'ar' ? 'ar-SA' : 'hi-IN') : 'en-US';
 
+                    // Safety Timeout: Auto-stop after 8s
+                    voiceTimeout = setTimeout(() => {
+                        if (activeRecognition) activeRecognition.stop();
+                    }, 8000);
+
                     recognition.onstart = () => setListeningField(field);
-                    recognition.onend = () => {
-                        setListeningField(null);
-                        activeRecognition = null;
-                    };
+                    recognition.onend = () => stopVoice();
                     recognition.onerror = (e) => {
-                        setListeningField(null);
-                        activeRecognition = null;
+                        stopVoice();
                         if (e.error === 'no-speech') return;
                         if (e.error === 'not-allowed') return alert("Check Permission.");
                         console.error("Voice Error:", e.error);
                     };
                     recognition.onresult = (event) => {
-                        const transcript = event.results[0][0].transcript;
-                        if (field === 'tags') {
-                            const newTags = transcript.split(/[\s,]+/).filter(Boolean);
-                            setForm(f => ({ ...f, tags: [...(f.tags || []), ...newTags] }));
+                        let finalTranscript = '';
+                        // Loop through results to find the Final one
+                        for (let i = event.resultIndex; i < event.results.length; ++i) {
+                            if (event.results[i].isFinal) {
+                                finalTranscript += event.results[i][0].transcript;
+                            }
                         }
-                        else setForm(f => ({ ...f, [field]: transcript }));
+
+                        if (finalTranscript) {
+                            if (field === 'tags') {
+                                const newTags = finalTranscript.split(/[\s,]+/).filter(Boolean);
+                                setForm(f => ({ ...f, tags: [...(f.tags || []), ...newTags] }));
+                            }
+                            else setForm(f => ({ ...f, [field]: finalTranscript }));
+
+                            stopVoice(); // Done!
+                        }
                     };
                     recognition.start();
                 } catch (e) {
                     alert("Error: " + e.message);
                 }
             };
+
 
             const saveCheck = async () => {
                 const exists = await db.books.where('title').equalsIgnoreCase(form.title).toArray();
@@ -793,7 +813,7 @@
                             <span className="text-xs font-bold text-gray-500">{filtered.length} Results</span>
                             <div className="flex gap-2 items-center">
                                 <button onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')} className="p-2 border rounded text-gray-500 hover:bg-gray-100"><Icon name={viewMode === 'grid' ? 'LayoutList' : 'Grid'} size={16} /></button>
-                                <button onClick={() => ExportUtils.csv(filtered, 'mixed')} className="text-xs font-bold text-gray-500 border rounded px-2 py-1 flex gap-1 items-center hover:bg-gray-50"><Icon name="Download" size={12} /> CSV</button>
+                                <button onClick={() => ExportUtils.csv(filtered, 'Slicer_vew_export')} className="text-xs font-bold text-gray-500 border rounded px-2 py-1 flex gap-1 items-center hover:bg-gray-50"><Icon name="Download" size={12} /> CSV</button>
                                 <button onClick={() => ExportUtils.htmlText(filtered, 'mixed', "Filtered Report")} className="text-xs font-bold text-gray-500 border rounded px-2 py-1 flex gap-1 items-center hover:bg-gray-50"><Icon name="FileText" size={12} /> HTML</button>
                             </div>
                         </div>
@@ -905,6 +925,7 @@
                                         <option value="date_added">Recent</option><option value="title">Title</option><option value="author">Author</option><option value="year">Year</option>
                                     </select>
                                 }
+                                <button onClick={() => ExportUtils.csv(sorted, 'Lib_vew_export')} className="p-2 border rounded text-gray-500 hover:bg-gray-100" title="Export CSV"><Icon name="Download" size={16} /></button>
                                 <button onClick={() => { setSelectMode(!selectMode); setSelected([]) }} className={`text-xs border rounded p-1 ${selectMode ? 'bg-blue-600 text-white' : 'text-gray-500'}`}>{selectMode ? 'Done' : 'Select'}</button>
                             </div>
                         </div>
