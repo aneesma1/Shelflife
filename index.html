@@ -518,7 +518,7 @@
 
                     // Safety Timeout: Auto-stop after 8s
                     voiceTimeout = setTimeout(() => {
-                        if (activeRecognition) activeRecognition.stop();
+                        stopVoice(); // Force clear UI even if engine hangs
                     }, 8000);
 
                     recognition.onstart = () => setListeningField(field);
