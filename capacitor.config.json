@@ -1,6 +1,6 @@
 {
     "appId": "com.shelflife.app",
-    "appName": "ShelfLife",
+    "appName": "Home Library by Anees",
     "webDir": "www",
     "server": {
         "androidScheme": "https"
