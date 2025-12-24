@@ -516,10 +516,16 @@
                     recognition.lang = useNative ?
                         (form.lang === 'ml' ? 'ml-IN' : form.lang === 'ar' ? 'ar-SA' : 'hi-IN') : 'en-US';
 
-                    // Safety Timeout: Auto-stop after 8s
-                    voiceTimeout = setTimeout(() => {
-                        stopVoice(); // Force clear UI even if engine hangs
-                    }, 8000);
+                    // Helper to reset the "Silence Detector"
+                    const resetSafetyTimer = () => {
+                        if (voiceTimeout) clearTimeout(voiceTimeout);
+                        voiceTimeout = setTimeout(() => {
+                            stopVoice(); // Stop if 8s of SILENCE passed
+                        }, 8000);
+                    };
+
+                    // Start initial timer
+                    resetSafetyTimer();
 
                     recognition.onstart = () => setListeningField(field);
                     recognition.onend = () => stopVoice();
@@ -530,6 +536,9 @@
                         console.error("Voice Error:", e.error);
                     };
                     recognition.onresult = (event) => {
+                        // User is speaking! Reset the "Silence Timer"
+                        resetSafetyTimer();
+
                         let finalTranscript = '';
                         // Loop through results to find the Final one
                         for (let i = event.resultIndex; i < event.results.length; ++i) {
