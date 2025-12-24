@@ -15,7 +15,7 @@ steps:
       - 'bash'
       - '-c'
       - |
-        mkdir -p www/libs
+        mkdir -p www/libs www/fonts
         cp index.html www/
         cd www/libs
         apt-get update && apt-get install -y curl
@@ -25,6 +25,12 @@ steps:
         curl -L -o tailwindcss.js https://cdn.tailwindcss.com
         curl -L -o dexie.js https://unpkg.com/dexie@3.2.4/dist/dexie.min.js
         curl -L -o html5-qrcode.min.js https://unpkg.com/html5-qrcode
+        cd ../fonts
+        curl -L -o NotoSans-Regular.woff2 "https://fonts.gstatic.com/s/notosans/v36/o-0NIpQlx3QUlC5A4PNjhjRFSfiM7HBj.woff2"
+        curl -L -o NotoSans-Bold.woff2 "https://fonts.gstatic.com/s/notosans/v36/o-0NIpQlx3QUlC5A4PNjFjFZSfiM7HBj.woff2"
+        curl -L -o NotoSansMalayalam.woff2 "https://fonts.gstatic.com/s/notosansmalayalam/v26/sJoa3LYBihSvsoX-GE4nSS5_E7c4LZ_B0L1D4-o.woff2"
+        curl -L -o NotoSansArabic.woff2 "https://fonts.gstatic.com/s/notosansarabic/v28/nwpCtLGrOAZMl5nJ_wfgRg3DrWFZWsnVBJ_sS6tlqHHFlj0EYJlsWk4yLBBN.woff2"
+        curl -L -o NotoSansDevanagari.woff2 "https://fonts.gstatic.com/s/notosansdevanagari/v26/TuGoUUFzXI5FBtUq5a8bjKYTZjtRU6Sgv3NaV_SNmI0b6dEhvA.woff2"
 
   # 3. Add Android Platform (Generates android/ folder)
   - name: 'node:18'

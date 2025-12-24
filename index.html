@@ -21,10 +21,35 @@
     <script src="libs/dexie.js"></script>
     <script src="libs/html5-qrcode.min.js"></script>
 
-    <!-- FONTS -->
-    <link
-        href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+Malayalam&family=Noto+Sans+Arabic&family=Noto+Sans+Devanagari&display=swap"
-        rel="stylesheet">
+    <!-- OFFLINE FONTS (Bundled in APK) -->
+    <style>
+        @font-face {
+            font-family: 'Noto Sans';
+            font-weight: 400;
+            src: url('fonts/NotoSans-Regular.woff2') format('woff2');
+        }
+
+        @font-face {
+            font-family: 'Noto Sans';
+            font-weight: 700;
+            src: url('fonts/NotoSans-Bold.woff2') format('woff2');
+        }
+
+        @font-face {
+            font-family: 'Noto Sans Malayalam';
+            src: url('fonts/NotoSansMalayalam.woff2') format('woff2');
+        }
+
+        @font-face {
+            font-family: 'Noto Sans Arabic';
+            src: url('fonts/NotoSansArabic.woff2') format('woff2');
+        }
+
+        @font-face {
+            font-family: 'Noto Sans Devanagari';
+            src: url('fonts/NotoSansDevanagari.woff2') format('woff2');
+        }
+    </style>
 
     <style>
         body {
