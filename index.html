@@ -1216,24 +1216,46 @@
                 }
             };
 
-            // Native Restore Helper with Metadata
+            // Native Restore Helper with Folder Picker
             const performNativeRestore = async () => {
                 if (!window.Capacitor) { alert("Restore requires Android App (Native Filesystem)."); return; }
                 try {
                     const { Filesystem } = window.Capacitor.Plugins;
-                    const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
-                    const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
-                    const targetDir = Directory[baseStr] || Directory.Documents;
+                    const FilePicker = window.Capacitor.Plugins.FilePicker;
 
-                    // Confirm Source Folder
-                    const folderInput = prompt("Confirm Folder to Scan:", folder);
-                    if (!folderInput) return;
-                    // Update preference if changed
-                    if (folderInput !== folder) localStorage.setItem('shelfLife_backupFolder', folderInput);
+                    let folderPath;
+                    let targetDir;
 
+                    // Try visual folder picker first
+                    if (FilePicker && FilePicker.pickDirectory) {
+                        try {
+                            const picked = await FilePicker.pickDirectory();
+                            if (picked && picked.path) {
+                                folderPath = picked.path;
+                                targetDir = null; // Use absolute path
+                            }
+                        } catch (pickerError) {
+                            // User cancelled or picker failed - fall back to manual
+                            console.log("Picker cancelled or unavailable:", pickerError);
+                        }
+                    }
+
+                    // Fallback to manual entry if picker didn't work
+                    if (!folderPath) {
+                        const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
+                        const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
+                        targetDir = Directory[baseStr] || Directory.Documents;
+
+                        const folderInput = prompt("Select folder manually (or Cancel and try again):", folder);
+                        if (!folderInput) return;
+                        folderPath = folderInput;
+                        if (folderInput !== folder) localStorage.setItem('shelfLife_backupFolder', folderInput);
+                    }
+
+                    // Read the selected folder
                     const ret = await Filesystem.readdir({
-                        path: folderInput,
-                        directory: targetDir
+                        path: folderPath,
+                        directory: targetDir // null for absolute paths from picker
                     }).catch(e => ({ files: [] }));
 
                     const groups = {};
