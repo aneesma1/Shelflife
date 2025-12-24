@@ -1173,6 +1173,8 @@
 
                     const TARGET_SIZE = 9 * 1024 * 1024; // 9MB safe limit for chunks
                     let part = 1;
+                    let currentChunk = [];
+                    let currentSize = 0;
                     const suffix = textOnly ? '_TextOnly' : '';
 
                     for (const rawBook of allBooks) {
