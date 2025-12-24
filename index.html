@@ -498,68 +498,82 @@
                 stopVoice();
 
                 if (!navigator.onLine) return alert("No Internet Connection.");
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                if (!SpeechRecognition) return alert("Not supported.");
 
-                try {
-                    const recognition = new SpeechRecognition();
-                    activeRecognition = recognition;
+                // Determine language
+                const useNative = field === 'title' && form.lang !== 'en';
+                const language = useNative
+                    ? (form.lang === 'ml' ? 'ml-IN' : form.lang === 'ar' ? 'ar-SA' : 'hi-IN')
+                    : 'en-US';
 
-                    // CONFIG ROUND 7: INTERIM RESULTS (Fixes "Red Mic / No Result" bug)
-                    // We enable interim results to keep the audio stream active and processed
-                    recognition.continuous = false;
-                    recognition.interimResults = true;
-                    recognition.maxAlternatives = 1;
+                // Use Native Plugin if in Capacitor
+                const NativeSpeech = window.Capacitor?.Plugins?.SpeechRecognition;
 
-                    // Language Logic
-                    const useNative = field === 'title' && form.lang !== 'en';
-                    recognition.lang = useNative ?
-                        (form.lang === 'ml' ? 'ml-IN' : form.lang === 'ar' ? 'ar-SA' : 'hi-IN') : 'en-US';
+                if (window.Capacitor && NativeSpeech) {
+                    try {
+                        // Check availability
+                        const { available } = await NativeSpeech.available();
+                        if (!available) return alert("Speech Recognition not available on this device.");
 
-                    // Helper to reset the "Silence Detector"
-                    const resetSafetyTimer = () => {
-                        if (voiceTimeout) clearTimeout(voiceTimeout);
-                        voiceTimeout = setTimeout(() => {
-                            stopVoice(); // Stop if 8s of SILENCE passed
-                        }, 8000);
-                    };
-
-                    // Start initial timer
-                    resetSafetyTimer();
-
-                    recognition.onstart = () => setListeningField(field);
-                    recognition.onend = () => stopVoice();
-                    recognition.onerror = (e) => {
-                        stopVoice();
-                        if (e.error === 'no-speech') return;
-                        if (e.error === 'not-allowed') return alert("Check Permission.");
-                        console.error("Voice Error:", e.error);
-                    };
-                    recognition.onresult = (event) => {
-                        // User is speaking! Reset the "Silence Timer"
-                        resetSafetyTimer();
-
-                        let finalTranscript = '';
-                        // Loop through results to find the Final one
-                        for (let i = event.resultIndex; i < event.results.length; ++i) {
-                            if (event.results[i].isFinal) {
-                                finalTranscript += event.results[i][0].transcript;
-                            }
+                        // Check/Request permissions
+                        const permStatus = await NativeSpeech.checkPermissions();
+                        if (permStatus.speechRecognition !== 'granted') {
+                            const req = await NativeSpeech.requestPermissions();
+                            if (req.speechRecognition !== 'granted') return alert("Microphone permission denied.");
                         }
 
-                        if (finalTranscript) {
+                        setListeningField(field);
+
+                        // Start native recognition
+                        const result = await NativeSpeech.start({
+                            language: language,
+                            popup: false,
+                            partialResults: false
+                        });
+
+                        if (result.matches && result.matches.length > 0) {
+                            const transcript = result.matches[0];
                             if (field === 'tags') {
-                                const newTags = finalTranscript.split(/[\s,]+/).filter(Boolean);
+                                const newTags = transcript.split(/[\s,]+/).filter(Boolean);
                                 setForm(f => ({ ...f, tags: [...(f.tags || []), ...newTags] }));
+                            } else {
+                                setForm(f => ({ ...f, [field]: transcript }));
                             }
-                            else setForm(f => ({ ...f, [field]: finalTranscript }));
-
-                            stopVoice(); // Done!
                         }
-                    };
-                    recognition.start();
-                } catch (e) {
-                    alert("Error: " + e.message);
+                        stopVoice();
+                    } catch (e) {
+                        stopVoice();
+                        if (e.message && e.message.includes('cancelled')) return; // User cancelled
+                        alert("Voice Error: " + (e.message || e));
+                    }
+                } else {
+                    // Fallback to Web Speech API (for browser testing)
+                    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                    if (!SpeechRecognition) return alert("Speech not supported in browser.");
+
+                    try {
+                        const recognition = new SpeechRecognition();
+                        activeRecognition = recognition;
+                        recognition.lang = language;
+                        recognition.continuous = false;
+                        recognition.interimResults = false;
+
+                        recognition.onstart = () => setListeningField(field);
+                        recognition.onend = () => stopVoice();
+                        recognition.onerror = (e) => { stopVoice(); };
+                        recognition.onresult = (event) => {
+                            const transcript = event.results[0][0].transcript;
+                            if (field === 'tags') {
+                                const newTags = transcript.split(/[\s,]+/).filter(Boolean);
+                                setForm(f => ({ ...f, tags: [...(f.tags || []), ...newTags] }));
+                            } else {
+                                setForm(f => ({ ...f, [field]: transcript }));
+                            }
+                            stopVoice();
+                        };
+                        recognition.start();
+                    } catch (e) {
+                        alert("Error: " + e.message);
+                    }
                 }
             };
 
