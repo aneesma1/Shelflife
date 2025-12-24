@@ -1205,6 +1205,10 @@
                     }
 
                     alert(`Backup (${textOnly ? 'Text Only' : 'Full'}) Complete!\nSaved ${part} file(s) to:\n${baseStr}/${folder}/`);
+
+                    // Track backup for reminder system
+                    localStorage.setItem('shelfLife_lastBackupDate', new Date().toISOString());
+                    localStorage.setItem('shelfLife_entriesSinceBackup', '0');
                 } catch (e) {
                     alert("Backup Error: " + e.message);
                 }
@@ -1607,6 +1611,20 @@
                         })();
 
                         console.log("Native listeners active");
+
+                        // Exit confirmation on back button
+                        const CapApp = window.Capacitor.Plugins.App;
+                        if (CapApp && CapApp.addListener) {
+                            CapApp.addListener('backButton', ({ canGoBack }) => {
+                                if (!canGoBack) {
+                                    if (confirm("Do you want to exit ShelfLife?")) {
+                                        CapApp.exitApp();
+                                    }
+                                } else {
+                                    window.history.back();
+                                }
+                            });
+                        }
                     }
                 } catch (e) { console.error("Native setup error", e); }
 
@@ -1652,9 +1670,29 @@
             const save = async (d) => {
                 try {
                     if (d.id) await db.books.put(d);
-                    else await db.books.add({ ...d, date_added: Date.now() });
+                    else {
+                        await db.books.add({ ...d, date_added: Date.now() });
+
+                        // Track entries since backup for reminder
+                        const count = parseInt(localStorage.getItem('shelfLife_entriesSinceBackup') || '0') + 1;
+                        localStorage.setItem('shelfLife_entriesSinceBackup', count.toString());
+                    }
                     setEditBook(null);
                     setView('library');
+
+                    // Check if backup reminder needed
+                    const lastBackup = localStorage.getItem('shelfLife_lastBackupDate');
+                    const entriesSince = parseInt(localStorage.getItem('shelfLife_entriesSinceBackup') || '0');
+                    const daysSince = lastBackup ? Math.floor((Date.now() - new Date(lastBackup).getTime()) / 86400000) : 999;
+
+                    if ((daysSince >= 7 || entriesSince >= 10) && !sessionStorage.getItem('backupReminderShown')) {
+                        sessionStorage.setItem('backupReminderShown', 'true');
+                        setTimeout(() => {
+                            if (confirm(`Backup Reminder:\n${entriesSince} new entries since last backup.\nWould you like to backup now?`)) {
+                                setView('settings');
+                            }
+                        }, 1000);
+                    }
                 } catch (err) {
                     alert("Database Error: " + err.message + "\nCheck storage space?");
                 }
