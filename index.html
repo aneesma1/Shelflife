@@ -682,17 +682,31 @@
                             {/* FRONT COVER */}
                             <div className="flex-shrink-0 w-28 h-40 bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 relative overflow-hidden group">
                                 {form.front ? <img src={form.front} className="w-full h-full object-cover" /> : <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400"><Icon name="Maximize" /><span className="text-[10px]">Front</span></div>}
-                                <label className="absolute inset-0 cursor-pointer flex items-center justify-center bg-transparent group-hover:bg-black/10 transition-colors">
-                                    <input type="file" className="hidden" onChange={e => handleImg(e, 'front')} capture="environment" accept="image/*" />
-                                </label>
+                                <div className="absolute bottom-0 left-0 right-0 flex bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <label className="flex-1 p-2 text-white text-center cursor-pointer hover:bg-black/30" title="Camera">
+                                        <Icon name="Camera" size={14} />
+                                        <input type="file" className="hidden" onChange={e => handleImg(e, 'front')} capture="environment" accept="image/*" />
+                                    </label>
+                                    <label className="flex-1 p-2 text-white text-center cursor-pointer hover:bg-black/30" title="Gallery">
+                                        <Icon name="Image" size={14} />
+                                        <input type="file" className="hidden" onChange={e => handleImg(e, 'front')} accept="image/*" />
+                                    </label>
+                                </div>
                             </div>
 
                             {/* REAR COVER */}
                             <div className="flex-shrink-0 w-28 h-40 bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 relative overflow-hidden group">
                                 {form.rear ? <img src={form.rear} className="w-full h-full object-cover" /> : <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400"><Icon name="Maximize" /><span className="text-[10px]">Rear</span></div>}
-                                <label className="absolute inset-0 cursor-pointer flex items-center justify-center bg-transparent group-hover:bg-black/10 transition-colors">
-                                    <input type="file" className="hidden" onChange={e => handleImg(e, 'rear')} capture="environment" accept="image/*" />
-                                </label>
+                                <div className="absolute bottom-0 left-0 right-0 flex bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <label className="flex-1 p-2 text-white text-center cursor-pointer hover:bg-black/30" title="Camera">
+                                        <Icon name="Camera" size={14} />
+                                        <input type="file" className="hidden" onChange={e => handleImg(e, 'rear')} capture="environment" accept="image/*" />
+                                    </label>
+                                    <label className="flex-1 p-2 text-white text-center cursor-pointer hover:bg-black/30" title="Gallery">
+                                        <Icon name="Image" size={14} />
+                                        <input type="file" className="hidden" onChange={e => handleImg(e, 'rear')} accept="image/*" />
+                                    </label>
+                                </div>
                             </div>
                         </div>
 
@@ -704,11 +718,17 @@
                                     <button onClick={() => setForm(f => ({ ...f, pages: f.pages.filter((_, idx) => idx !== i) }))} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1"><Icon name="X" size={12} /></button>
                                 </div>
                             ))}
-                            {/* Manual Add Page */}
+                            {/* Add Page - Camera */}
                             <label className="flex-shrink-0 w-28 h-40 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center overflow-hidden relative cursor-pointer hover:bg-gray-50">
-                                <Icon name="PlusSquare" className="text-gray-400" />
-                                <span className="text-[10px] font-bold text-gray-400 mt-1">Add Page</span>
+                                <Icon name="Camera" className="text-gray-400" />
+                                <span className="text-[10px] font-bold text-gray-400 mt-1">Camera</span>
                                 <input type="file" className="hidden" onChange={handlePageAdd} capture="environment" accept="image/*" />
+                            </label>
+                            {/* Add Page - Gallery */}
+                            <label className="flex-shrink-0 w-28 h-40 bg-blue-50 border-2 border-dashed border-blue-200 rounded-lg flex flex-col items-center justify-center overflow-hidden relative cursor-pointer hover:bg-blue-100">
+                                <Icon name="Image" className="text-blue-400" />
+                                <span className="text-[10px] font-bold text-blue-400 mt-1">Gallery</span>
+                                <input type="file" className="hidden" onChange={handlePageAdd} accept="image/*" />
                             </label>
                         </div>
 
@@ -1249,8 +1269,13 @@
         const Tools = ({ books }) => {
             const [lastRestore, setLastRestore] = useState(null);
             useEffect(() => {
-                const stored = localStorage.getItem('shelfLife_restore_meta');
-                if (stored) setLastRestore(JSON.parse(stored));
+                try {
+                    const stored = localStorage.getItem('shelfLife_restore_meta');
+                    if (stored) setLastRestore(JSON.parse(stored));
+                } catch (e) {
+                    console.error("Failed to parse restore meta:", e);
+                    setLastRestore(null);
+                }
             }, []);
 
             // Consolidated Chunked Backup Helper
@@ -1475,19 +1500,90 @@
                 }
             };
 
-            // ... (Legacy Import and Verify Folder remain same) ...
+            // Legacy/Single File Import
+            const handleLegacyImport = (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async (evt) => {
+                    try {
+                        const data = JSON.parse(evt.target.result);
+                        if (!Array.isArray(data)) throw new Error("Invalid JSON Format");
+                        if (!confirm(`Restore ${data.length} books from file "${file.name}"?\nWarning: This will REPLACE your library.`)) return;
+
+                        await db.books.clear();
+                        await db.books.bulkAdd(data);
+                        alert("Legacy Restore Complete!");
+                        window.location.reload();
+                    } catch (err) {
+                        alert("Import Failed: " + err.message);
+                    }
+                };
+                reader.readAsText(file);
+            };
+
+            // Test Folder Creation
+            const verifyFolder = async () => {
+                if (!window.Capacitor) return alert("This feature requires the Android app.");
+                try {
+                    const { Filesystem } = window.Capacitor.Plugins;
+                    const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
+                    const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
+                    const targetDir = Directory[baseStr] || Directory.Documents;
+
+                    await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true });
+                    await Filesystem.writeFile({
+                        path: `${folder}/Test_Write.txt`,
+                        data: "Access Verified " + new Date().toISOString(),
+                        directory: targetDir,
+                        encoding: Encoding.UTF8
+                    });
+                    alert(`Success!\nFolder "${folder}" is writable in ${baseStr}.`);
+                } catch (e) {
+                    alert("Folder Access Failed: " + e.message);
+                }
+            };
 
             // --- SETTINGS COMPONENT FIX ---
             const [tempDeviceName, setTempDeviceName] = useState(localStorage.getItem('shelfLife_deviceName') || 'MYPHONE');
 
             return (
                 <div className="p-4 space-y-4 pb-24">
-                    {/* ... (Header) ... */}
+                    <h2 className="text-2xl font-bold">Tools</h2>
 
-                    {/* ... (Export Settings) ... */}
+                    {/* REPORTS SECTION */}
+                    <div className="bg-white p-4 rounded-xl shadow border border-blue-100">
+                        <h3 className="font-bold mb-3 text-blue-800">Reports</h3>
+                        <div className="mb-3 bg-blue-50 p-2 rounded">
+                            <label className="text-[10px] font-bold text-blue-800 uppercase block mb-1">Export Location</label>
+                            <div className="flex gap-2">
+                                <select
+                                    className="p-1 text-xs border rounded bg-white"
+                                    defaultValue={localStorage.getItem('shelfLife_exportBase') || 'DOCUMENTS'}
+                                    onChange={(e) => localStorage.setItem('shelfLife_exportBase', e.target.value)}
+                                >
+                                    <option value="DOCUMENTS">Documents/</option>
+                                    <option value="EXTERNAL_STORAGE">External/</option>
+                                </select>
+                                <input
+                                    className="flex-1 p-1 text-xs border rounded"
+                                    placeholder="ShelfLife_Exports"
+                                    defaultValue={localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports'}
+                                    onBlur={(e) => localStorage.setItem('shelfLife_exportFolder', e.target.value || 'ShelfLife_Exports')}
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <button onClick={() => ExportUtils.htmlText(books, 'Mix', 'Library Inventory')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="List" /> HTML Text Report</button>
+                            <button onClick={() => ExportUtils.htmlVisual(books, 'Mix', 'Visual Catalogue')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Image" /> HTML Visual Catalogue</button>
+                            <button onClick={() => ExportUtils.csv(books, 'Library_Export')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Download" /> Export CSV</button>
+                        </div>
+                    </div>
 
+                    {/* BACKUP & RESTORE SECTION */}
                     <div className="bg-white p-4 rounded-xl shadow border border-orange-100">
-                        {/* ... */}
+                        <h3 className="font-bold mb-3 text-orange-800">Backup & Restore</h3>
+                        {lastRestore && <div className="text-xs text-gray-500 mb-3 bg-gray-50 p-2 rounded border">Last Restored: <b>{lastRestore.name}</b><br />{lastRestore.date}</div>}
 
                         {/* DATA SYNC SETTINGS */}
                         <div className="bg-white p-4 rounded-xl shadow border border-blue-100 mt-4">
