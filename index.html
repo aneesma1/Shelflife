@@ -531,10 +531,17 @@
                 const file = e.target.files && e.target.files[0];
                 if (file) {
                     try {
+                        // Show temporary loading indicator
+                        setForm(prev => ({ ...prev, [field]: 'loading' }));
                         const res = await ImageUtils.process(file);
                         setForm(prev => ({ ...prev, [field]: res }));
-                    } catch (err) { alert("Error: " + err); }
+                    } catch (err) {
+                        setForm(prev => ({ ...prev, [field]: null }));
+                        alert("Error: " + err);
+                    }
                 }
+                // Clear input to allow re-selecting same file
+                e.target.value = '';
             };
 
             const handlePageAdd = async (e) => {
@@ -709,7 +716,12 @@
                         <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
                             {/* FRONT COVER */}
                             <div className="flex-shrink-0 w-28 h-40 bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 relative overflow-hidden group">
-                                {form.front ? <img src={form.front} className="w-full h-full object-cover" /> : <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400"><Icon name="Maximize" /><span className="text-[10px]">Front</span></div>}
+                                {form.front === 'loading' ? (
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+                                        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                                        <span className="text-[10px] mt-1">Processing...</span>
+                                    </div>
+                                ) : form.front ? <img src={form.front} className="w-full h-full object-cover" /> : <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400"><Icon name="Maximize" /><span className="text-[10px]">Front</span></div>}
                                 <div className="absolute bottom-0 left-0 right-0 flex bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <label className="flex-1 p-2 text-white text-center cursor-pointer hover:bg-black/30" title="Camera">
                                         <Icon name="Camera" size={14} />
@@ -724,7 +736,12 @@
 
                             {/* REAR COVER */}
                             <div className="flex-shrink-0 w-28 h-40 bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 relative overflow-hidden group">
-                                {form.rear ? <img src={form.rear} className="w-full h-full object-cover" /> : <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400"><Icon name="Maximize" /><span className="text-[10px]">Rear</span></div>}
+                                {form.rear === 'loading' ? (
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+                                        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                                        <span className="text-[10px] mt-1">Processing...</span>
+                                    </div>
+                                ) : form.rear ? <img src={form.rear} className="w-full h-full object-cover" /> : <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400"><Icon name="Maximize" /><span className="text-[10px]">Rear</span></div>}
                                 <div className="absolute bottom-0 left-0 right-0 flex bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <label className="flex-1 p-2 text-white text-center cursor-pointer hover:bg-black/30" title="Camera">
                                         <Icon name="Camera" size={14} />
@@ -1032,11 +1049,21 @@
 
         // --- SLICER SEARCH ---
         const SlicerSearch = ({ books, onEdit }) => {
-            const [activeFilters, setActiveFilters] = useState([]);
+            const [activeFilters, setActiveFilters] = useState(() => {
+                try {
+                    const saved = sessionStorage.getItem('shelfLife_slicerFilters');
+                    return saved ? JSON.parse(saved) : [];
+                } catch { return []; }
+            });
             const [pendingField, setPendingField] = useState('publisher');
             const [pendingValue, setPendingValue] = useState('');
             const [viewMode, setViewMode] = useState('grid');
             const [detailBook, setDetailBook] = useState(null);
+
+            // Persist filters to sessionStorage
+            useEffect(() => {
+                sessionStorage.setItem('shelfLife_slicerFilters', JSON.stringify(activeFilters));
+            }, [activeFilters]);
 
             const suggestions = useMemo(() => {
                 const set = new Set();
@@ -1144,8 +1171,18 @@
             const [selectMode, setSelectMode] = useState(false);
             const [selected, setSelected] = useState([]);
             const [viewMode, setViewMode] = useState('grid');
-            const [search, setSearch] = useState({ tags: [], query: '' });
+            const [search, setSearch] = useState(() => {
+                try {
+                    const saved = sessionStorage.getItem('shelfLife_libraryFilters');
+                    return saved ? JSON.parse(saved) : { tags: [], query: '', showDupes: false };
+                } catch { return { tags: [], query: '', showDupes: false }; }
+            });
             const [showBulkEdit, setShowBulkEdit] = useState(false);
+
+            // Persist search filters to sessionStorage
+            useEffect(() => {
+                sessionStorage.setItem('shelfLife_libraryFilters', JSON.stringify(search));
+            }, [search]);
 
             const suggestions = useMemo(() => {
                 const s = new Set();
