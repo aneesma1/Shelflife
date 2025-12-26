@@ -1453,7 +1453,7 @@
         };
 
         // --- DASHBOARD ---
-        const Dashboard = ({ books }) => {
+        const Dashboard = ({ books, onNavigateToSlicer }) => {
             const total = books.length;
             // Group by currency
             const assetBreakdown = useMemo(() => {
@@ -1495,6 +1495,11 @@
                 return Object.entries(c).sort((a, b) => b[1] - a[1]);
             }, [books]);
 
+            const ownerStats = useMemo(() => {
+                const c = {}; books.forEach(b => { const k = b.owner || 'Unassigned'; c[k] = (c[k] || 0) + 1; });
+                return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            }, [books]);
+
             const repairList = books.filter(b => b.condition === 'Torn' || b.condition === 'Loose' || (b.tags && b.tags.includes('repair')));
 
             return (
@@ -1520,21 +1525,36 @@
                     <div className="bg-white p-4 rounded-xl shadow border">
                         <h3 className="font-bold mb-4">Top Publishers</h3>
                         {pubStats.map(([k, v]) => (
-                            <div key={k} className="mb-2"><div className="flex justify-between text-xs mb-1"><span>{k}</span><b>{v}</b></div><div className="bar-bg"><div className="bar-fill bg-purple-500" style={{ width: `${(v / total) * 100}%` }}></div></div></div>
+                            <div key={k} onClick={() => onNavigateToSlicer && onNavigateToSlicer('publisher', k)} className="mb-2 cursor-pointer hover:bg-gray-50 rounded -mx-2 px-2 py-1"><div className="flex justify-between text-xs mb-1"><span>{k}</span><b>{v}</b></div><div className="bar-bg"><div className="bar-fill bg-purple-500" style={{ width: `${(v / total) * 100}%` }}></div></div></div>
                         ))}
                     </div>
 
                     <div className="bg-white p-4 rounded-xl shadow border">
                         <h3 className="font-bold mb-4">Locations</h3>
                         {locStats.map(([k, v]) => (
-                            <div key={k} className="mb-2"><div className="flex justify-between text-xs mb-1"><span>{k}</span><b>{v}</b></div><div className="bar-bg"><div className="bar-fill bg-blue-500" style={{ width: `${(v / total) * 100}%` }}></div></div></div>
+                            <div key={k} onClick={() => onNavigateToSlicer && onNavigateToSlicer('building', k)} className="mb-2 cursor-pointer hover:bg-gray-50 rounded -mx-2 px-2 py-1"><div className="flex justify-between text-xs mb-1"><span>{k}</span><b>{v}</b></div><div className="bar-bg"><div className="bar-fill bg-blue-500" style={{ width: `${(v / total) * 100}%` }}></div></div></div>
                         ))}
                     </div>
 
                     <div className="bg-white p-4 rounded-xl shadow border">
                         <h3 className="font-bold mb-4">Top Tags</h3>
                         {tagStats.map(([k, v]) => (
-                            <div key={k} className="mb-2"><div className="flex justify-between text-xs mb-1"><span>{k}</span><b>{v}</b></div><div className="bar-bg"><div className="bar-fill bg-green-500" style={{ width: `${(v / total) * 100}%` }}></div></div></div>
+                            <div key={k} onClick={() => onNavigateToSlicer && onNavigateToSlicer('tags', k)} className="mb-2 cursor-pointer hover:bg-gray-50 rounded -mx-2 px-2 py-1"><div className="flex justify-between text-xs mb-1"><span>{k}</span><b>{v}</b></div><div className="bar-bg"><div className="bar-fill bg-green-500" style={{ width: `${(v / total) * 100}%` }}></div></div></div>
+                        ))}
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl shadow border">
+                        <h3 className="font-bold mb-4">By Owner</h3>
+                        {ownerStats.length === 0 && <p className="text-gray-400 text-sm">No owners assigned</p>}
+                        {ownerStats.map(([k, v]) => (
+                            <div key={k} onClick={() => onNavigateToSlicer && onNavigateToSlicer('owner', k)} className="mb-2 cursor-pointer hover:bg-gray-50 rounded -mx-2 px-2 py-1"><div className="flex justify-between text-xs mb-1"><span>{k}</span><b>{v}</b></div><div className="bar-bg"><div className="bar-fill bg-orange-500" style={{ width: `${(v / total) * 100}%` }}></div></div></div>
+                        ))}
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl shadow border">
+                        <h3 className="font-bold mb-4">Condition</h3>
+                        {condStats.map(([k, v]) => (
+                            <div key={k} onClick={() => onNavigateToSlicer && onNavigateToSlicer('condition', k)} className="mb-2 cursor-pointer hover:bg-gray-50 rounded -mx-2 px-2 py-1"><div className="flex justify-between text-xs mb-1"><span>{k}</span><b>{v}</b></div><div className="bar-bg"><div className="bar-fill bg-red-400" style={{ width: `${(v / total) * 100}%` }}></div></div></div>
                         ))}
                     </div>
                 </div>
@@ -1567,8 +1587,9 @@
                     const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
                     const targetDir = Directory[baseStr] || Directory.Documents;
 
-                    // Ensure Folder
+                    // Ensure Folders (main + to_merge)
                     try { await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true }); } catch (e) { }
+                    try { await Filesystem.mkdir({ path: `${folder}/to_merge`, directory: targetDir, recursive: true }); } catch (e) { }
 
                     const TARGET_SIZE = 9 * 1024 * 1024; // 9MB safe limit for chunks
                     let part = 1;
@@ -1967,7 +1988,317 @@
                         <h3 className="font-bold mb-3">Tag Manager</h3>
                         <TagManager books={books} onClose={() => { }} />
                     </div>
+
+                    {/* DATA HANDLING HUB (MERGE STUDIO) */}
+                    <div className="bg-white p-4 rounded-xl shadow border border-purple-200">
+                        <h3 className="font-bold mb-3 text-purple-800 flex items-center gap-2"><Icon name="Merge" size={18} /> Merge Studio</h3>
+                        <p className="text-xs text-gray-500 mb-3">Merge backup files from multiple devices into a unified master file.</p>
+                        <DataHandlingHub />
+                    </div>
                 </div >
+            );
+        };
+
+        // --- DATA HANDLING HUB (MERGE STUDIO) ---
+        const DataHandlingHub = () => {
+            const [files, setFiles] = useState([]);
+            const [selectedFiles, setSelectedFiles] = useState([]);
+            const [mergeMode, setMergeMode] = useState('merge'); // merge or append
+            const [loading, setLoading] = useState(false);
+            const [step, setStep] = useState('scan'); // scan, preview, processing, complete
+
+            const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
+            const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
+
+            // Scan to_merge folder
+            const scanMergeFolder = async () => {
+                if (!window.Capacitor) { alert("Requires Android App"); return; }
+                setLoading(true);
+                try {
+                    const { Filesystem } = window.Capacitor.Plugins;
+                    const targetDir = Directory[baseStr] || Directory.Documents;
+                    const mergePath = `${folder}/to_merge`;
+
+                    // Ensure folder exists
+                    try { await Filesystem.mkdir({ path: mergePath, directory: targetDir, recursive: true }); } catch (e) { }
+
+                    const result = await Filesystem.readdir({ path: mergePath, directory: targetDir });
+                    const jsonFiles = result.files.filter(f => f.name.endsWith('.json'));
+
+                    const scannedFiles = [];
+                    for (const file of jsonFiles) {
+                        try {
+                            const content = await Filesystem.readFile({
+                                path: `${mergePath}/${file.name}`,
+                                directory: targetDir,
+                                encoding: Encoding.UTF8
+                            });
+                            const data = JSON.parse(content.data);
+                            const books = Array.isArray(data) ? data : [data];
+                            const signature = books.find(b => b.__shelflife_signature__)?.__shelflife_signature__ || null;
+                            const actualBooks = books.filter(b => !b.__shelflife_signature__);
+
+                            scannedFiles.push({
+                                name: file.name,
+                                books: actualBooks,
+                                count: actualBooks.length,
+                                signature: signature,
+                                hasImages: actualBooks.some(b => b.front || b.rear),
+                                size: content.data.length
+                            });
+                        } catch (e) {
+                            console.error(`Failed to parse ${file.name}:`, e);
+                        }
+                    }
+
+                    setFiles(scannedFiles);
+                    setSelectedFiles(scannedFiles.map((_, i) => i)); // Select all by default
+                    if (scannedFiles.length > 0) setStep('preview');
+                    else alert(`No JSON files found in ${mergePath}. Copy backup files there first.`);
+                } catch (e) {
+                    alert("Scan Error: " + e.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            // Calculate totals
+            const totalBooks = useMemo(() => {
+                return selectedFiles.reduce((sum, i) => sum + files[i]?.count || 0, 0);
+            }, [selectedFiles, files]);
+
+            // Execute merge
+            const executeMerge = async () => {
+                if (selectedFiles.length === 0) { alert("Select at least one file"); return; }
+                setLoading(true);
+                setStep('processing');
+
+                try {
+                    const { Filesystem } = window.Capacitor.Plugins;
+                    const targetDir = Directory[baseStr] || Directory.Documents;
+                    const now = new Date();
+                    const ts = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '_' + String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0');
+                    const sessionFolder = `${folder}/Merged_${ts}`;
+                    const workFolder = `${sessionFolder}/work_files`;
+                    const mergePath = `${folder}/to_merge`;
+                    const deviceName = localStorage.getItem('shelfLife_deviceName') || 'MYPHONE';
+
+                    // Create session folders
+                    await Filesystem.mkdir({ path: sessionFolder, directory: targetDir, recursive: true });
+                    await Filesystem.mkdir({ path: workFolder, directory: targetDir, recursive: true });
+
+                    // Collect all books
+                    const masterMap = new Map();
+                    const duplicates = [];
+                    const sourceInfo = [];
+                    let hasAnyImages = false;
+
+                    for (const idx of selectedFiles) {
+                        const file = files[idx];
+                        sourceInfo.push({ name: file.name, count: file.count, type: file.signature?.type || 'UNKNOWN' });
+                        if (file.hasImages) hasAnyImages = true;
+
+                        for (const book of file.books) {
+                            const key = `${book.title}|${book.isbn || ''}`.toLowerCase();
+                            if (masterMap.has(key)) {
+                                duplicates.push({ existing: masterMap.get(key), incoming: book });
+                                if (mergeMode === 'merge') {
+                                    book.tags = [...new Set([...(book.tags || []), 'duplicate'])];
+                                    masterMap.set(`dup_${Date.now()}_${Math.random()}`, book);
+                                }
+                                // In append mode, skip duplicate
+                            } else {
+                                masterMap.set(key, book);
+                            }
+                        }
+
+                        // Move source file to work_files
+                        try {
+                            const srcContent = await Filesystem.readFile({
+                                path: `${mergePath}/${file.name}`,
+                                directory: targetDir,
+                                encoding: Encoding.UTF8
+                            });
+                            await Filesystem.writeFile({
+                                path: `${workFolder}/${file.name}`,
+                                directory: targetDir,
+                                data: srcContent.data,
+                                encoding: Encoding.UTF8
+                            });
+                            await Filesystem.deleteFile({
+                                path: `${mergePath}/${file.name}`,
+                                directory: targetDir
+                            });
+                        } catch (e) { console.warn("Move failed:", e); }
+                    }
+
+                    const allBooks = [...masterMap.values()];
+                    const typePrefix = hasAnyImages ? 'FULL' : 'TXT';
+
+                    // Create signature
+                    const signature = {
+                        __shelflife_signature__: {
+                            version: '2.0',
+                            created: now.toISOString(),
+                            device: deviceName,
+                            type: `MASTER_${typePrefix}`,
+                            book_count: allBooks.length,
+                            sources: sourceInfo
+                        }
+                    };
+
+                    // Write master file
+                    const masterName = `SL_MASTER_${typePrefix}_${deviceName}_${ts}.json`;
+                    await Filesystem.writeFile({
+                        path: `${sessionFolder}/${masterName}`,
+                        directory: targetDir,
+                        data: JSON.stringify([signature, ...allBooks]),
+                        encoding: Encoding.UTF8
+                    });
+
+                    // Write TXT log
+                    const txtLog = `========================================
+ShelfLife Merge Log
+========================================
+Date: ${now.toLocaleString()}
+Device: ${deviceName}
+Mode: ${mergeMode.toUpperCase()}
+----------------------------------------
+SOURCE FILES:
+${sourceInfo.map((s, i) => `${i + 1}. ${s.name} - ${s.count} books`).join('\n')}
+----------------------------------------
+RESULT:
+Total Unique: ${allBooks.length}
+Duplicates Found: ${duplicates.length}
+Mode Action: ${mergeMode === 'merge' ? 'Tagged as duplicate' : 'Skipped'}
+----------------------------------------
+OUTPUT: ${masterName}
+========================================`;
+
+                    await Filesystem.writeFile({
+                        path: `${sessionFolder}/merge_log.txt`,
+                        directory: targetDir,
+                        data: txtLog,
+                        encoding: Encoding.UTF8
+                    });
+
+                    // Write CSV log
+                    const csvHeader = 'File,Date,Mode,Books,Output\n';
+                    const csvRow = `"${sourceInfo.map(s => s.name).join('; ')}",${now.toISOString()},${mergeMode},${allBooks.length},"${masterName}"`;
+                    await Filesystem.writeFile({
+                        path: `${sessionFolder}/merge_report.csv`,
+                        directory: targetDir,
+                        data: csvHeader + csvRow,
+                        encoding: Encoding.UTF8
+                    });
+
+                    setStep('complete');
+                    alert(`✅ Merge Complete!\n\nMaster: ${masterName}\nBooks: ${allBooks.length}\nDuplicates: ${duplicates.length}\n\nSaved to: ${sessionFolder}`);
+
+                    // Reset
+                    setFiles([]);
+                    setSelectedFiles([]);
+                    setStep('scan');
+
+                } catch (e) {
+                    alert("Merge Error: " + e.message);
+                    setStep('preview');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="space-y-3">
+                    {step === 'scan' && (
+                        <div className="text-center py-4">
+                            <p className="text-sm text-gray-500 mb-3">
+                                Copy backup files to:<br />
+                                <code className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{folder}/to_merge/</code>
+                            </p>
+                            <button
+                                onClick={scanMergeFolder}
+                                disabled={loading}
+                                className="px-6 py-3 bg-purple-600 text-white rounded-lg font-bold flex items-center gap-2 mx-auto disabled:opacity-50"
+                            >
+                                <Icon name="Folder" size={18} />
+                                {loading ? 'Scanning...' : 'Scan Merge Folder'}
+                            </button>
+                        </div>
+                    )}
+
+                    {step === 'preview' && (
+                        <>
+                            <div className="text-xs font-bold text-gray-500 uppercase mb-2">
+                                {files.length} Files Found • {totalBooks} Total Books
+                            </div>
+
+                            <div className="max-h-48 overflow-y-auto space-y-2 border rounded p-2 bg-gray-50">
+                                {files.map((f, i) => (
+                                    <label key={i} className="flex items-center gap-2 p-2 bg-white rounded border cursor-pointer hover:bg-blue-50">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedFiles.includes(i)}
+                                            onChange={(e) => {
+                                                if (e.target.checked) setSelectedFiles([...selectedFiles, i]);
+                                                else setSelectedFiles(selectedFiles.filter(x => x !== i));
+                                            }}
+                                        />
+                                        <div className="flex-1 min-w-0">
+                                            <div className="font-bold text-sm truncate">{f.name}</div>
+                                            <div className="text-xs text-gray-500">
+                                                {f.count} books • {f.hasImages ? '📷 With Images' : '📝 Text Only'}
+                                            </div>
+                                        </div>
+                                    </label>
+                                ))}
+                            </div>
+
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setSelectedFiles(files.map((_, i) => i))}
+                                    className="text-xs px-2 py-1 border rounded"
+                                >All</button>
+                                <button
+                                    onClick={() => setSelectedFiles([])}
+                                    className="text-xs px-2 py-1 border rounded"
+                                >None</button>
+                            </div>
+
+                            <div className="flex gap-2 mt-2">
+                                <button
+                                    onClick={() => setMergeMode('merge')}
+                                    className={`flex-1 py-2 rounded text-sm font-bold ${mergeMode === 'merge' ? 'bg-purple-600 text-white' : 'bg-gray-100'}`}
+                                >MERGE (Tag Dupes)</button>
+                                <button
+                                    onClick={() => setMergeMode('append')}
+                                    className={`flex-1 py-2 rounded text-sm font-bold ${mergeMode === 'append' ? 'bg-purple-600 text-white' : 'bg-gray-100'}`}
+                                >APPEND (Skip Dupes)</button>
+                            </div>
+
+                            <div className="flex gap-2 mt-3">
+                                <button
+                                    onClick={() => { setStep('scan'); setFiles([]); }}
+                                    className="flex-1 py-2 border rounded font-bold text-gray-600"
+                                >Cancel</button>
+                                <button
+                                    onClick={executeMerge}
+                                    disabled={loading || selectedFiles.length === 0}
+                                    className="flex-1 py-2 bg-green-600 text-white rounded font-bold disabled:opacity-50"
+                                >
+                                    {loading ? 'Processing...' : `Merge ${selectedFiles.length} Files`}
+                                </button>
+                            </div>
+                        </>
+                    )}
+
+                    {step === 'processing' && (
+                        <div className="text-center py-8">
+                            <div className="w-10 h-10 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+                            <p className="text-sm text-gray-500">Processing merge...</p>
+                        </div>
+                    )}
+                </div>
             );
         };
 
@@ -2063,6 +2394,12 @@
                     try {
                         await Filesystem.mkdir({
                             path: folder,
+                            directory: targetDir,
+                            recursive: true
+                        });
+                        // Create to_merge subfolder for merge studio
+                        await Filesystem.mkdir({
+                            path: `${folder}/to_merge`,
                             directory: targetDir,
                             recursive: true
                         });
@@ -2294,7 +2631,11 @@
                     <main className="p-4 pb-24 safe-area-top">
                         {view === 'library' && <LibraryView books={books} onEdit={(b) => { setEditBook(b); }} onDeleteMulti={deleteMulti} />}
                         {view === 'search' && <SlicerSearch books={books} onEdit={(b) => { setEditBook(b); setView('add') }} />}
-                        {view === 'reports' && <Dashboard books={books} />}
+                        {view === 'reports' && <Dashboard books={books} onNavigateToSlicer={(field, value) => {
+                            // Set the slicer filter in sessionStorage and navigate
+                            sessionStorage.setItem('shelfLife_slicerFilters', JSON.stringify([{ field, value }]));
+                            setView('search');
+                        }} />}
                         {view === 'settings' && <Tools books={books} currency={currency} setCurrency={setCurrency} />}
                     </main>
 
