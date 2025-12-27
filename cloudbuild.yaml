@@ -50,22 +50,13 @@ steps:
     entrypoint: 'npx'
     args: ['cap', 'sync', 'android']
 
-  # 5. Setup Persistent Debug Keystore (for consistent APK updates)
+  # 5. Download existing keystore or skip (will create in build step)
   - name: 'gcr.io/cloud-builders/gsutil'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        # Try to download existing keystore, or create new one
-        gsutil cp gs://$PROJECT_ID-build-artifacts/shelflife-debug.keystore ./android/app/ 2>/dev/null || \
-        keytool -genkeypair -v \
-          -keystore ./android/app/shelflife-debug.keystore \
-          -alias androiddebugkey \
-          -keyalg RSA -keysize 2048 -validity 10000 \
-          -storepass android -keypass android \
-          -dname "CN=ShelfLife Debug, O=ShelfLife, C=US"
-        # Save keystore for future builds
-        gsutil cp ./android/app/shelflife-debug.keystore gs://$PROJECT_ID-build-artifacts/
+        gsutil cp gs://$PROJECT_ID-build-artifacts/shelflife-debug.keystore ./android/app/ 2>/dev/null || echo "No existing keystore, will create new one"
 
   # 6. Build APK with consistent signing
   - name: 'reactnativecommunity/react-native-android:latest'
@@ -73,7 +64,20 @@ steps:
     args:
       - '-c'
       - |
-        cd android
+        cd android/app
+        # Create keystore if it doesn't exist (keytool is available in Android container)
+        if [ ! -f shelflife-debug.keystore ]; then
+          echo "Creating new keystore..."
+          keytool -genkeypair -v \
+            -keystore shelflife-debug.keystore \
+            -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=ShelfLife Debug, O=ShelfLife, C=US"
+        else
+          echo "Using existing keystore"
+        fi
+        cd ..
         chmod +x gradlew
         # Create signing config
         cat >> app/build.gradle << 'EOF'
@@ -94,6 +98,14 @@ steps:
         }
         EOF
         ./gradlew assembleDebug
+
+  # 7. Save keystore for future builds
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gsutil cp ./android/app/shelflife-debug.keystore gs://$PROJECT_ID-build-artifacts/ 2>/dev/null || echo "Keystore upload skipped"
 
 options:
   logging: CLOUD_LOGGING_ONLY
