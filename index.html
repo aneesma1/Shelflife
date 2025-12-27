@@ -1690,7 +1690,12 @@
 
                     const choices = Object.keys(groups).sort().reverse();
                     if (choices.length === 0) {
-                        alert(`No backups found in ${baseStr}/${folderInput}.\n\nPlease ensure your backups are in 'Documents/${folderInput}'.`);
+                        // DEBUG: Show what files were actually found
+                        const fileList = (ret.files || []).map(f => f.name).slice(0, 10);
+                        const debugInfo = fileList.length > 0
+                            ? `\n\nFiles found (first 10):\n${fileList.join('\n')}`
+                            : '\n\n(Folder appears empty or unreadable)';
+                        alert(`No backups found in ${baseStr}/${folderInput}.${debugInfo}\n\nExpected format:\nSL_BK_DEVICE_Part1_YYYY-MM-DD_HH-MM-SS.json`);
                         return;
                     }
 
