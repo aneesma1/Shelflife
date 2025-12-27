@@ -1,9 +1,12 @@
 {
-  "name": "shelflife-pwa",
+  "name": "shelflife",
   "version": "2.0.0",
-  "description": "ShelfLife PWA to APK",
+  "description": "ShelfLife - Personal Book Library Manager",
   "scripts": {
-    "build": "echo 'No build step for single file PWA'"
+    "build": "echo 'No build step for single file PWA'",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@capacitor/android": "^6.0.0",
@@ -17,6 +20,7 @@
     "dexie": "^3.2.4"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.0.0"
+    "@capacitor/cli": "^6.0.0",
+    "@tauri-apps/cli": "^1.6.0"
   }
 }
