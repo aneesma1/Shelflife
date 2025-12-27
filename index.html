@@ -1669,11 +1669,14 @@
                         // ... (rest of parsing logic remains same)
                         const name = f.name;
                         let ts = null;
+                        // NEW format: SL_FULL_BK_DEVICE_Part1_TIMESTAMP.json or SL_TXT_BK_...
+                        const mNew2 = name.match(/SL_(?:FULL_BK|TXT_BK)_(.+)_Part\d+_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}(?:-\d{2})?)\.json/);
+                        // OLD format: SL_BK_DEVICE_Part1_TIMESTAMP.json
                         const mNew = name.match(/SL_BK_(.+)_Part\d+(?:_TextOnly)?_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json/);
-                        if (mNew) {
-                            const dev = mNew[1];
-                            const date = mNew[2];
-                            ts = `${dev} (${date})`;
+                        if (mNew2) {
+                            ts = `${mNew2[1]} (${mNew2[2]})`;
+                        } else if (mNew) {
+                            ts = `${mNew[1]} (${mNew[2]})`;
                         } else {
                             const mold = name.match(/ShelfLife_Part\d+(?:_TextOnly)?_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json/);
                             if (mold) ts = `UnknownDevice (${mold[1]})`;
@@ -1720,7 +1723,8 @@
                     };
 
                     const isLegacy = targetSet.startsWith("UnknownDevice");
-                    const datePart = targetSet.match(/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}/)[0];
+                    // Match timestamp with or without seconds
+                    const datePart = targetSet.match(/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}(?:-\d{2})?/)[0];
                     const fileList = (ret.files || []).filter(f => f.name.includes(datePart)).sort();
 
                     let stats = { total: 0, added: 0, duplicates: 0, skipped: 0 };
@@ -2392,21 +2396,25 @@ OUTPUT: ${masterName}
                     // Test Create with Force Write
                     const targetDir = Directory[base] || Directory.Documents;
                     try {
-                        await Filesystem.mkdir({
-                            path: folder,
-                            directory: targetDir,
-                            recursive: true
-                        });
-                        // Create to_merge subfolder for merge studio
-                        await Filesystem.mkdir({
-                            path: `${folder}/to_merge`,
-                            directory: targetDir,
-                            recursive: true
-                        });
+                        // Create main folder (ignore if exists)
+                        try {
+                            await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true });
+                        } catch (mkdirErr) {
+                            // Folder exists is OK, continue
+                            console.log('Main folder mkdir:', mkdirErr.message);
+                        }
+
+                        // Create to_merge subfolder (ignore if exists)
+                        try {
+                            await Filesystem.mkdir({ path: `${folder}/to_merge`, directory: targetDir, recursive: true });
+                        } catch (mkdirErr) {
+                            console.log('to_merge folder mkdir:', mkdirErr.message);
+                        }
+
                         // Create a test file to REALLY verify write access
                         await Filesystem.writeFile({
                             path: `${folder}/.test_marker`,
-                            data: 'Setup Complete',
+                            data: 'Setup Complete ' + new Date().toISOString(),
                             directory: targetDir,
                             encoding: Encoding.UTF8
                         });
