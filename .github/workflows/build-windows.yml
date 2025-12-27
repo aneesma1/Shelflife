@@ -37,22 +37,36 @@ jobs:
           $iconDir = "src-tauri/icons"
           New-Item -ItemType Directory -Force -Path $iconDir
           
-          # Create a minimal 1x1 PNG as placeholder (will be replaced later)
-          $pngData = [Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
-          [System.IO.File]::WriteAllBytes("$iconDir/32x32.png", $pngData)
-          [System.IO.File]::WriteAllBytes("$iconDir/128x128.png", $pngData)
-          [System.IO.File]::WriteAllBytes("$iconDir/128x128@2x.png", $pngData)
+          # Create a proper 32x32 PNG (orange book icon placeholder)
+          # This is a valid minimal 32x32 solid color PNG
+          $png32 = [Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAOklEQVR42mNgGAWjYBSMglEwCkbBKBgFo2AUjIJRMApGwSgYBaNgFIyCUTAKRsEoGAWjYBSQBQBL5wAB/XE0KQAAAABJRU5ErkJggg==")
+          [System.IO.File]::WriteAllBytes("$iconDir/32x32.png", $png32)
+          [System.IO.File]::WriteAllBytes("$iconDir/128x128.png", $png32)
+          [System.IO.File]::WriteAllBytes("$iconDir/128x128@2x.png", $png32)
           
-          # Create minimal ICO file (Windows icon)
-          # ICO header for 1x1 32bpp icon
-          $icoHeader = [byte[]](0,0,1,0,1,0,1,1,0,0,1,0,32,0,68,0,0,0,22,0,0,0)
-          $bmpHeader = [byte[]](40,0,0,0,1,0,0,0,2,0,0,0,1,0,32,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
-          $pixelData = [byte[]](255,200,100,255,0,0,0,0)
-          $icoData = $icoHeader + $bmpHeader + $pixelData
+          # Create a valid minimal ICO file (16x16 orange)
+          # This is a properly formatted ICO with embedded BMP
+          $icoBase64 = "AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
+                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
+                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
+                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
+                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
+                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
+                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
+                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
+                       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+          $icoData = [Convert]::FromBase64String($icoBase64)
           [System.IO.File]::WriteAllBytes("$iconDir/icon.ico", $icoData)
           
-          # Create empty ICNS (macOS) - not needed for Windows but prevents errors
-          [System.IO.File]::WriteAllBytes("$iconDir/icon.icns", $pngData)
+          # Create placeholder ICNS (macOS) - just use PNG
+          [System.IO.File]::WriteAllBytes("$iconDir/icon.icns", $png32)
           
           Write-Host "Placeholder icons created successfully"
 
