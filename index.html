@@ -1578,7 +1578,7 @@
             const performChunkedBackup = async (textOnly = false) => {
                 if (!window.Capacitor) { alert("Backup requires Android App (Native Filesystem)."); return; }
                 try {
-                    const { Filesystem } = window.Capacitor.Plugins;
+                    const { Filesystem, Device } = window.Capacitor.Plugins;
                     const allBooks = await db.books.toArray();
                     const now = new Date();
                     const ts = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '_' + String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0') + '-' + String(now.getSeconds()).padStart(2, '0');
@@ -1597,6 +1597,33 @@
                     let currentSize = 0;
                     const typePrefix = textOnly ? 'TXT_BK' : 'FULL_BK';
                     const deviceName = localStorage.getItem('shelfLife_deviceName') || 'MYPHONE';
+
+                    // Get device info for signature
+                    let deviceInfo = { model: 'Unknown', platform: 'unknown' };
+                    try {
+                        if (Device) {
+                            const info = await Device.getInfo();
+                            deviceInfo = { model: info.model || 'Unknown', platform: info.platform || 'unknown', manufacturer: info.manufacturer || '' };
+                        }
+                    } catch (e) { }
+
+                    // Create signature object to include in first chunk
+                    const signature = {
+                        __shelflife_signature__: {
+                            version: '2.0',
+                            created: now.toISOString(),
+                            device_nickname: deviceName,
+                            device_model: deviceInfo.model,
+                            device_manufacturer: deviceInfo.manufacturer,
+                            device_platform: deviceInfo.platform,
+                            type: typePrefix,
+                            book_count: allBooks.length
+                        }
+                    };
+
+                    // Always include signature in first chunk
+                    currentChunk.push(signature);
+                    currentSize += JSON.stringify(signature).length;
 
                     for (const rawBook of allBooks) {
                         const book = textOnly ? { ...rawBook, front: null, rear: null, thumb: null, pages: [] } : rawBook;
@@ -1627,7 +1654,7 @@
                         });
                     }
 
-                    alert(`Backup (${textOnly ? 'Text Only' : 'Full'}) Complete!\nSaved ${part} file(s) to:\n${baseStr}/${folder}/`);
+                    alert(`Backup (${textOnly ? 'Text Only' : 'Full'}) Complete!\nSaved ${part} file(s) to:\n${baseStr}/${folder}/\n\nDevice: ${deviceName}\nModel: ${deviceInfo.model}`);
 
                     // Track backup for reminder system
                     localStorage.setItem('shelfLife_lastBackupDate', new Date().toISOString());
@@ -1828,7 +1855,115 @@
                 reader.readAsText(file);
             };
 
-            // Test Folder Creation
+            // Smart Restore: Pick one file, app handles all chunks
+            const handleSmartRestore = async (e) => {
+                const files = e.target.files;
+                if (!files || files.length === 0) return;
+
+                // Allow multi-select for all parts
+                const allFiles = Array.from(files).filter(f => f.name.endsWith('.json'));
+                if (allFiles.length === 0) { alert("No JSON files selected"); return; }
+
+                // Sort by filename to ensure Part1, Part2... order
+                allFiles.sort((a, b) => a.name.localeCompare(b.name));
+
+                // Parse first file to get signature info
+                const firstFileContent = await readFileAsText(allFiles[0]);
+                const firstData = JSON.parse(firstFileContent);
+                const signature = firstData.find(b => b.__shelflife_signature__)?.__shelflife_signature__;
+
+                const signatureInfo = signature
+                    ? `Device: ${signature.device_nickname || 'Unknown'}\nModel: ${signature.device_model || 'Unknown'}\nBooks: ${signature.book_count || '?'}`
+                    : 'Legacy backup (no signature)';
+
+                const modeInput = prompt(`Restoring ${allFiles.length} file(s):\n${allFiles.map(f => f.name).join('\n')}\n\n${signatureInfo}\n\nChoose Restore Mode:\n[1] REPLACE (Wipe & Import)\n[2] APPEND (Add New, Skip Duplicates)\n[3] MERGE (Add All, Mark Duplicates)\n\nEnter 1, 2, or 3:`, "1");
+
+                if (!modeInput || !['1', '2', '3'].includes(modeInput)) return;
+                const modeMap = { '1': 'Replace', '2': 'Append', '3': 'Merge' };
+                const mode = modeMap[modeInput];
+
+                if (mode === 'Replace' && !confirm("WARNING: REPLACE mode will PERMANENTLY DELETE your current library.\nAre you sure?")) return;
+
+                if (mode === 'Replace') await db.books.clear();
+                const existingBooks = (mode !== 'Replace') ? await db.books.toArray() : [];
+
+                const isDuplicate = (newB, existB) => {
+                    return existB.some(b =>
+                        (b.title || '').toLowerCase().trim() === (newB.title || '').toLowerCase().trim() &&
+                        (b.author_name || b.author || '').toLowerCase().trim() === (newB.author_name || newB.author || '').toLowerCase().trim() &&
+                        (b.language || 'en') === (newB.language || 'en') &&
+                        (b.building || '').toLowerCase().trim() === (newB.building || '').toLowerCase().trim()
+                    );
+                };
+
+                let stats = { total: 0, added: 0, duplicates: 0, skipped: 0 };
+
+                for (const file of allFiles) {
+                    try {
+                        const content = await readFileAsText(file);
+                        const chunkData = JSON.parse(content);
+
+                        const toAdd = [];
+                        for (let book of chunkData) {
+                            // Skip signature objects
+                            if (book.__shelflife_signature__) continue;
+
+                            stats.total++;
+
+                            // Author migration
+                            if (book.author && !book.author_name) {
+                                const parts = book.author.trim().split(' ');
+                                let name = parts.pop() || '';
+                                let initials = parts.join(' ') || '';
+                                if (!initials && !name) name = book.author;
+                                book.author_name = name;
+                                book.author_initials = initials;
+                                delete book.author;
+                            }
+
+                            if (mode === 'Replace') {
+                                toAdd.push(book);
+                                stats.added++;
+                            } else {
+                                const dup = isDuplicate(book, existingBooks);
+                                if (dup) {
+                                    stats.duplicates++;
+                                    if (mode === 'Merge') {
+                                        book.tags = [...(book.tags || []), 'duplicate'];
+                                        toAdd.push(book);
+                                        stats.added++;
+                                    } else {
+                                        stats.skipped++;
+                                    }
+                                } else {
+                                    toAdd.push(book);
+                                    stats.added++;
+                                }
+                            }
+                        }
+
+                        if (toAdd.length > 0) {
+                            await db.books.bulkAdd(toAdd);
+                            if (mode !== 'Replace') existingBooks.push(...toAdd);
+                        }
+                    } catch (err) {
+                        console.error(`Error processing ${file.name}:`, err);
+                    }
+                }
+
+                alert(`Restore Complete (${mode})\n\nScanned: ${stats.total}\nAdded: ${stats.added}\nDuplicates: ${stats.duplicates}\nSkipped: ${stats.skipped}`);
+                window.location.reload();
+            };
+
+            // Helper to read file as text
+            const readFileAsText = (file) => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.onerror = (e) => reject(e);
+                    reader.readAsText(file);
+                });
+            };
             const verifyFolder = async () => {
                 if (!window.Capacitor) return alert("This feature requires the Android app.");
                 try {
@@ -1985,9 +2120,14 @@
 
                             <h4 className="font-bold text-xs uppercase text-yellow-800 mb-2">Restore</h4>
                             <div className="space-y-2">
-                                <button onClick={performNativeRestore} className="w-full py-2 bg-gray-700 text-white rounded text-xs font-bold flex items-center justify-center gap-2"><Icon name="RefreshCcw" /> Scan & Restore from Folder</button>
-                                <label className="w-full py-2 bg-gray-500 text-white rounded text-xs font-bold flex items-center justify-center gap-2 cursor-pointer">
-                                    <Icon name="Upload" /> Restore Legacy JSON File
+                                <label className="w-full py-2 bg-green-600 text-white rounded text-xs font-bold flex items-center justify-center gap-2 cursor-pointer">
+                                    <Icon name="RefreshCcw" /> Smart Restore (Pick Files)
+                                    <input type="file" onChange={handleSmartRestore} accept=".json" multiple className="hidden" />
+                                </label>
+                                <p className="text-[9px] text-gray-500 text-center">Select one or more backup files - works with chunked backups</p>
+                                <button onClick={performNativeRestore} className="w-full py-2 bg-gray-500 text-white rounded text-xs font-bold flex items-center justify-center gap-2"><Icon name="FolderSearch" /> Scan Folder (May fail on Android 11+)</button>
+                                <label className="w-full py-2 bg-gray-400 text-white rounded text-xs font-bold flex items-center justify-center gap-2 cursor-pointer">
+                                    <Icon name="Upload" /> Legacy Single File
                                     <input type="file" onChange={handleLegacyImport} accept=".json" className="hidden" />
                                 </label>
                             </div>
