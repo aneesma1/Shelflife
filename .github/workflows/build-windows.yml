@@ -33,9 +33,9 @@ jobs:
 
       - name: Generate placeholder icons
         run: |
-          # Create minimal placeholder icons for Windows build
-          # Using PowerShell to create simple icon files
+          # Create icons directory first
           $iconDir = "src-tauri/icons"
+          New-Item -ItemType Directory -Force -Path $iconDir
           
           # Create a minimal 1x1 PNG as placeholder (will be replaced later)
           $pngData = [Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
