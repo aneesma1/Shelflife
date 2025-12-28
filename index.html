@@ -1193,6 +1193,7 @@
         const BulkEditModal = ({ selectedIds, books, onClose, onApply }) => {
             const [field, setField] = useState('owner');
             const [value, setValue] = useState('');
+            const [tagValue, setTagValue] = useState([]); // For TagTokenInput
             const [tagAction, setTagAction] = useState('add');
 
             // Preview: Show current values summary
@@ -1221,8 +1222,20 @@
                 return [...set].sort();
             }, [books, field]);
 
+            // Reset tagValue when switching away from tags field
+            useEffect(() => {
+                if (field !== 'tags') {
+                    setTagValue([]);
+                }
+            }, [field]);
+
             const handleApply = async () => {
-                if (!value.trim()) return alert("Please enter a value");
+                // Validate based on field type
+                if (field === 'tags') {
+                    if (tagValue.length === 0) return alert("Please enter at least one tag");
+                } else {
+                    if (!value.trim()) return alert("Please enter a value");
+                }
 
                 for (const id of selectedIds) {
                     const book = await db.books.get(id);
@@ -1233,10 +1246,10 @@
                     if (field === 'publisher') update.publisher = value.trim();
                     if (field === 'author_name') update.author_name = value.trim();
                     if (field === 'tags') {
-                        const newTags = value.split(',').map(t => t.trim()).filter(Boolean);
+                        // Use tagValue array directly (from TagTokenInput)
                         update.tags = tagAction === 'add'
-                            ? [...new Set([...(book.tags || []), ...newTags])]
-                            : (book.tags || []).filter(t => !newTags.includes(t));
+                            ? [...new Set([...(book.tags || []), ...tagValue])]
+                            : (book.tags || []).filter(t => !tagValue.includes(t));
                     }
 
                     await db.books.update(id, update);
@@ -1294,16 +1307,28 @@
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
                                     {field === 'tags' ? (tagAction === 'add' ? 'Tags to Add' : 'Tags to Remove') : `New ${field}`}
                                 </label>
-                                <input
-                                    list="bulk-suggestions"
-                                    className="w-full p-3 border rounded"
-                                    placeholder={field === 'tags' ? "tag1, tag2, tag3" : `Enter ${field}...`}
-                                    value={value}
-                                    onChange={e => setValue(e.target.value)}
-                                />
-                                <datalist id="bulk-suggestions">
-                                    {suggestions.map(s => <option key={s} value={s} />)}
-                                </datalist>
+                                {field === 'tags' ? (
+                                    <TagTokenInput
+                                        label=""
+                                        value={tagValue}
+                                        onChange={setTagValue}
+                                        allBooks={books}
+                                        placeholder={tagAction === 'add' ? "Add tags..." : "Remove tags..."}
+                                    />
+                                ) : (
+                                    <>
+                                        <input
+                                            list="bulk-suggestions"
+                                            className="w-full p-3 border rounded"
+                                            placeholder={`Enter ${field}...`}
+                                            value={value}
+                                            onChange={e => setValue(e.target.value)}
+                                        />
+                                        <datalist id="bulk-suggestions">
+                                            {suggestions.map(s => <option key={s} value={s} />)}
+                                        </datalist>
+                                    </>
+                                )}
                             </div>
 
                             {/* Apply Button */}
@@ -1634,34 +1659,109 @@
         const DetailModal = ({ book, onClose, onEdit }) => {
             const [zoomImg, setZoomImg] = useState(null);
             const [scale, setScale] = useState(1);
+            const [pinchDistance, setPinchDistance] = useState(null);
+            const [pinchScale, setPinchScale] = useState(1);
+
+            // Sanitize filename helper
+            const sanitizeFilename = (name) => {
+                return name
+                    .replace(/[/\\:*?"<>|]/g, '_')
+                    .substring(0, 50)
+                    .trim() || 'Untitled';
+            };
 
             const handleSaveImage = async (imgSrc) => {
                 try {
                     if (window.Capacitor) {
-                        const { Filesystem, Share } = window.Capacitor.Plugins;
+                        const { Filesystem } = window.Capacitor.Plugins;
                         const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
                         const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
                         const targetDir = Directory[baseStr] || Directory.Documents;
-                        const fname = `ShelfLife_Image_${Date.now()}.jpg`;
                         const base64Data = imgSrc.split(',')[1] || imgSrc;
 
-                        await Filesystem.writeFile({
-                            path: `${folder}/${fname}`,
-                            data: base64Data,
-                            directory: targetDir
-                        });
-                        alert(`Image saved to ${folder}/${fname}`);
+                        // Create Images subfolder
+                        const imagesPath = `${folder}/Images`;
+                        try {
+                            await Filesystem.mkdir({
+                                path: imagesPath,
+                                directory: targetDir,
+                                recursive: true
+                            });
+                        } catch (mkdirErr) {
+                            // Folder might already exist, ignore error
+                        }
+
+                        // Generate filename: BookTitle_Date.jpg
+                        const date = new Date().toISOString().slice(0, 10);
+                        const safeName = sanitizeFilename(book.title);
+                        const fname = `${safeName}_${date}.jpg`;
+
+                        try {
+                            await Filesystem.writeFile({
+                                path: `${imagesPath}/${fname}`,
+                                data: base64Data,
+                                directory: targetDir
+                            });
+                            alert(`✅ Saved to Images/${fname}`);
+                        } catch (saveErr) {
+                            // Fallback: save to root folder
+                            const fallbackName = `BookImage_${Date.now()}.jpg`;
+                            await Filesystem.writeFile({
+                                path: `${folder}/${fallbackName}`,
+                                data: base64Data,
+                                directory: targetDir
+                            });
+                            alert(`⚠️ Saved to root as ${fallbackName}`);
+                        }
                     } else {
                         // Web fallback: download link
                         const a = document.createElement('a');
                         a.href = imgSrc;
-                        a.download = `ShelfLife_Image_${Date.now()}.jpg`;
+                        const safeName = sanitizeFilename(book.title);
+                        a.download = `${safeName}_${Date.now()}.jpg`;
                         a.click();
                     }
                 } catch (e) {
-                    alert("Save failed: " + e.message);
+                    alert("❌ Save failed: " + e.message);
                 }
             };
+
+            // Pinch zoom handlers
+            const handleTouchStart = (e) => {
+                if (e.touches.length === 2) {
+                    const distance = Math.hypot(
+                        e.touches[0].pageX - e.touches[1].pageX,
+                        e.touches[0].pageY - e.touches[1].pageY
+                    );
+                    setPinchDistance(distance);
+                    setPinchScale(scale);
+                }
+            };
+
+            const handleTouchMove = (e) => {
+                if (e.touches.length === 2 && pinchDistance) {
+                    e.preventDefault();
+                    const distance = Math.hypot(
+                        e.touches[0].pageX - e.touches[1].pageX,
+                        e.touches[0].pageY - e.touches[1].pageY
+                    );
+                    const ratio = distance / pinchDistance;
+                    const newScale = Math.min(Math.max(pinchScale * ratio, 0.5), 4);
+                    setScale(newScale);
+                }
+            };
+
+            const handleTouchEnd = () => {
+                setPinchDistance(null);
+            };
+
+            // Reset scale when image changes
+            useEffect(() => {
+                if (zoomImg) {
+                    setScale(1);
+                    setPinchDistance(null);
+                }
+            }, [zoomImg]);
 
             return (
                 <div className="fixed inset-0 bg-black/80 z-50 flex items-end sm:items-center justify-center p-4">
@@ -1669,7 +1769,10 @@
                         <div className="fixed inset-0 z-[60] bg-black flex flex-col items-center justify-center">
                             <div
                                 className="flex-1 w-full overflow-auto flex items-center justify-center"
-                                style={{ touchAction: 'pinch-zoom' }}
+                                style={{ touchAction: 'none' }}
+                                onTouchStart={handleTouchStart}
+                                onTouchMove={handleTouchMove}
+                                onTouchEnd={handleTouchEnd}
                             >
                                 <img
                                     src={zoomImg}
