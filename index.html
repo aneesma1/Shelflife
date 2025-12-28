@@ -524,7 +524,7 @@
                     !value.includes(tag)
                 );
                 setSuggestions(filtered.slice(0, 8)); // Limit to 8 suggestions
-                setShowDropdown(filtered.length > 0);
+                setShowDropdown(true); // Always show dropdown if input exists
                 setSelectedIndex(-1);
             }, [input, allTags, value]);
 
@@ -618,7 +618,7 @@
                     </div>
 
                     {/* Autocomplete Dropdown */}
-                    {showDropdown && suggestions.length > 0 && (
+                    {showDropdown && (
                         <div className="absolute z-50 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
                             {suggestions.map((suggestion, index) => (
                                 <div key={index}
@@ -1054,7 +1054,14 @@
                                 ))}
                             </div>
 
-                            <VoiceInput label="Title (Native)" field="title" value={form.title} onChange={(e) => handleChange('title', e.target.value)} onVoice={() => startVoice('title')} isListening={listeningField === 'title'} lang={form.lang} />
+                            <VoiceInput label="Title (Native)" field="title" value={form.title} onChange={(e) => {
+                                const newTitle = e.target.value;
+                                handleChange('title', newTitle);
+                                // Auto-fill phonetic if English and title changed
+                                if (form.lang === 'en' && newTitle) {
+                                    handleChange('phonetic', newTitle);
+                                }
+                            }} onVoice={() => startVoice('title')} isListening={listeningField === 'title'} lang={form.lang} />
                             <VoiceInput label="Phonetic (Manual)" field="phonetic" value={form.phonetic} onChange={(e) => handleChange('phonetic', e.target.value)} onVoice={() => startVoice('phonetic')} isListening={listeningField === 'phonetic'} lang="en" />
                             <VoiceInput label="ISBN" field="isbn" value={form.isbn} onChange={(e) => handleChange('isbn', e.target.value)} onVoice={() => startVoice('isbn')} isListening={listeningField === 'isbn'} lang="en" />
 
