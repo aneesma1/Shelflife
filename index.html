@@ -2367,6 +2367,29 @@
                 <div className="p-4 space-y-4 pb-24">
                     <h2 className="text-2xl font-bold">Tools</h2>
 
+                    {/* ABOUT SECTION */}
+                    <div className="bg-gradient-to-br from-blue-500 to-blue-700 p-4 rounded-xl shadow-lg text-white">
+                        <h3 className="font-bold text-xl mb-2">📚 ShelfLife</h3>
+                        <div className="space-y-1 text-sm">
+                            <p><span className="font-bold">Version:</span> 2.1.0</p>
+                            <p><span className="font-bold">Build:</span> {new Date().toLocaleString('en-US', {
+                                year: 'numeric', month: '2-digit', day: '2-digit',
+                                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+                            })}</p>
+                            <p><span className="font-bold">Commit:</span> 3eeb524</p>
+                        </div>
+                        <div className="mt-3 pt-3 border-t border-white/30">
+                            <p className="text-xs font-bold mb-1">✨ What's New in v2.1:</p>
+                            <ul className="text-xs space-y-0.5 list-disc list-inside">
+                                <li>Tag tokenization with pills/chips UI</li>
+                                <li>Autocomplete for Author, Building, Owner, Condition</li>
+                                <li>Pinch zoom for images</li>
+                                <li>Images folder organization</li>
+                                <li>Bulk edit tag tokenization</li>
+                            </ul>
+                        </div>
+                    </div>
+
                     {/* REPORTS SECTION */}
                     <div className="bg-white p-4 rounded-xl shadow border border-blue-100">
                         <h3 className="font-bold mb-3 text-blue-800">Reports</h3>
@@ -2495,12 +2518,12 @@
 
                             <h4 className="font-bold text-xs uppercase text-yellow-800 mb-2">Restore</h4>
                             <div className="space-y-2">
+                                <label className="text-xs text-gray-500 font-bold uppercase block">📥 Restore from Backup</label>
                                 <label className="w-full py-2 bg-green-600 text-white rounded text-xs font-bold flex items-center justify-center gap-2 cursor-pointer">
                                     <Icon name="RefreshCcw" /> Smart Restore (Pick Files)
                                     <input type="file" onChange={handleSmartRestore} accept=".json" multiple className="hidden" />
                                 </label>
                                 <p className="text-[9px] text-gray-500 text-center">Select one or more backup files - works with chunked backups</p>
-                                <button onClick={performNativeRestore} className="w-full py-2 bg-gray-500 text-white rounded text-xs font-bold flex items-center justify-center gap-2"><Icon name="FolderSearch" /> Scan Folder (May fail on Android 11+)</button>
                                 <label className="w-full py-2 bg-gray-400 text-white rounded text-xs font-bold flex items-center justify-center gap-2 cursor-pointer">
                                     <Icon name="Upload" /> Legacy Single File
                                     <input type="file" onChange={handleLegacyImport} accept=".json" className="hidden" />
