@@ -1939,6 +1939,11 @@
         // --- TOOLS ---
         const Tools = ({ books }) => {
             const [lastRestore, setLastRestore] = useState(null);
+            const [showWhatsNew, setShowWhatsNew] = useState(false);
+            const APP_VERSION = '2.1.0';
+            const BUILD_DATE = '2025-12-28 21:43';
+            const COMMIT_HASH = '42f1f77';
+
             useEffect(() => {
                 try {
                     const stored = localStorage.getItem('shelfLife_restore_meta');
@@ -2371,22 +2376,26 @@
                     <div className="bg-gradient-to-br from-blue-500 to-blue-700 p-4 rounded-xl shadow-lg text-white">
                         <h3 className="font-bold text-xl mb-2">📚 ShelfLife</h3>
                         <div className="space-y-1 text-sm">
-                            <p><span className="font-bold">Version:</span> 2.1.0</p>
-                            <p><span className="font-bold">Build:</span> {new Date().toLocaleString('en-US', {
-                                year: 'numeric', month: '2-digit', day: '2-digit',
-                                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-                            })}</p>
-                            <p><span className="font-bold">Commit:</span> 3eeb524</p>
+                            <p><span className="font-bold">Version:</span> {APP_VERSION}</p>
+                            <p><span className="font-bold">Build:</span> {BUILD_DATE}</p>
+                            <p><span className="font-bold">Commit:</span> {COMMIT_HASH}</p>
                         </div>
                         <div className="mt-3 pt-3 border-t border-white/30">
-                            <p className="text-xs font-bold mb-1">✨ What's New in v2.1:</p>
-                            <ul className="text-xs space-y-0.5 list-disc list-inside">
-                                <li>Tag tokenization with pills/chips UI</li>
-                                <li>Autocomplete for Author, Building, Owner, Condition</li>
-                                <li>Pinch zoom for images</li>
-                                <li>Images folder organization</li>
-                                <li>Bulk edit tag tokenization</li>
-                            </ul>
+                            <button
+                                onClick={() => setShowWhatsNew(!showWhatsNew)}
+                                className="text-xs font-bold mb-1 flex items-center gap-1 hover:underline w-full"
+                            >
+                                ✨ What's New in v2.1 {showWhatsNew ? '▼' : '▶'}
+                            </button>
+                            {showWhatsNew && (
+                                <ul className="text-xs space-y-0.5 list-disc list-inside mt-2">
+                                    <li>Tag tokenization with pills/chips UI</li>
+                                    <li>Autocomplete for Author, Building, Owner, Condition</li>
+                                    <li>Pinch zoom for images</li>
+                                    <li>Images folder organization</li>
+                                    <li>Bulk edit tag tokenization</li>
+                                </ul>
+                            )}
                         </div>
                     </div>
 
