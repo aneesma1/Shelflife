@@ -1062,7 +1062,10 @@
                                     handleChange('phonetic', newTitle);
                                 }
                             }} onVoice={() => startVoice('title')} isListening={listeningField === 'title'} lang={form.lang} />
-                            <VoiceInput label="Phonetic (Manual)" field="phonetic" value={form.phonetic} onChange={(e) => handleChange('phonetic', e.target.value)} onVoice={() => startVoice('phonetic')} isListening={listeningField === 'phonetic'} lang="en" />
+                            <div>
+                                <VoiceInput label="Phonetic (Manual)" field="phonetic" value={form.phonetic} onChange={(e) => handleChange('phonetic', e.target.value)} onVoice={() => startVoice('phonetic')} isListening={listeningField === 'phonetic'} lang="en" />
+                                {form.lang === 'en' && <p className="text-xs text-gray-500 mt-1 ml-1">✓ Auto-filled for English books (editable)</p>}
+                            </div>
                             <VoiceInput label="ISBN" field="isbn" value={form.isbn} onChange={(e) => handleChange('isbn', e.target.value)} onVoice={() => startVoice('isbn')} isListening={listeningField === 'isbn'} lang="en" />
 
                             <div className="flex gap-2 relative">
