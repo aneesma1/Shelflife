@@ -489,6 +489,268 @@
             );
         };
 
+        // TAG TOKEN INPUT (Pills/Chips with Autocomplete)
+        const TagTokenInput = ({ label, value = [], onChange, allBooks = [], placeholder = "Add tags..." }) => {
+            const [input, setInput] = useState('');
+            const [showDropdown, setShowDropdown] = useState(false);
+            const [suggestions, setSuggestions] = useState([]);
+            const [selectedIndex, setSelectedIndex] = useState(-1);
+            const inputRef = useRef(null);
+            const dropdownRef = useRef(null);
+
+            // Extract all unique tags from library
+            const allTags = useMemo(() => {
+                const tagSet = new Set();
+                allBooks.forEach(book => {
+                    if (book.tags && Array.isArray(book.tags)) {
+                        book.tags.forEach(tag => {
+                            if (tag && tag.trim()) tagSet.add(tag.trim());
+                        });
+                    }
+                });
+                return Array.from(tagSet).sort();
+            }, [allBooks]);
+
+            // Filter suggestions based on input
+            useEffect(() => {
+                if (!input.trim()) {
+                    setSuggestions([]);
+                    setShowDropdown(false);
+                    return;
+                }
+
+                const filtered = allTags.filter(tag =>
+                    tag.toLowerCase().includes(input.toLowerCase()) &&
+                    !value.includes(tag)
+                );
+                setSuggestions(filtered.slice(0, 8)); // Limit to 8 suggestions
+                setShowDropdown(filtered.length > 0);
+                setSelectedIndex(-1);
+            }, [input, allTags, value]);
+
+            // Add tag
+            const addTag = (tag) => {
+                const trimmed = tag.trim();
+                if (!trimmed || value.includes(trimmed)) return;
+
+                const newTags = [...value, trimmed];
+                onChange(newTags);
+                setInput('');
+                setShowDropdown(false);
+                setSelectedIndex(-1);
+                inputRef.current?.focus();
+            };
+
+            // Remove tag
+            const removeTag = (indexToRemove) => {
+                const newTags = value.filter((_, index) => index !== indexToRemove);
+                onChange(newTags);
+                inputRef.current?.focus();
+            };
+
+            // Keyboard navigation
+            const handleKeyDown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (selectedIndex >= 0 && suggestions[selectedIndex]) {
+                        addTag(suggestions[selectedIndex]);
+                    } else if (input.trim()) {
+                        addTag(input);
+                    }
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSelectedIndex(prev =>
+                        prev < suggestions.length - 1 ? prev + 1 : prev
+                    );
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSelectedIndex(prev => prev > 0 ? prev - 1 : -1);
+                } else if (e.key === 'Backspace' && !input && value.length > 0) {
+                    removeTag(value.length - 1);
+                } else if (e.key === 'Escape') {
+                    setShowDropdown(false);
+                    setSelectedIndex(-1);
+                }
+            };
+
+            // Click outside to close dropdown
+            useEffect(() => {
+                const handleClickOutside = (e) => {
+                    if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+                        setShowDropdown(false);
+                    }
+                };
+                document.addEventListener('mousedown', handleClickOutside);
+                return () => document.removeEventListener('mousedown', handleClickOutside);
+            }, []);
+
+            return (
+                <div className="relative" ref={dropdownRef}>
+                    <label className="text-xs text-gray-500 font-bold">{label}</label>
+                    <div className="w-full p-2 border rounded-lg min-h-[44px] flex flex-wrap gap-2 items-center cursor-text"
+                        onClick={() => inputRef.current?.focus()}>
+                        {/* Tag Pills */}
+                        {value.map((tag, index) => (
+                            <div key={index}
+                                className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
+                                <span>{tag}</span>
+                                <button type="button"
+                                    onClick={(e) => { e.stopPropagation(); removeTag(index); }}
+                                    className="hover:bg-blue-200 rounded-full p-0.5 transition">
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                        ))}
+
+                        {/* Input Field */}
+                        <input
+                            ref={inputRef}
+                            type="text"
+                            className="flex-1 min-w-[120px] outline-none bg-transparent"
+                            placeholder={value.length === 0 ? placeholder : ""}
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            onFocus={() => input && setShowDropdown(suggestions.length > 0)}
+                        />
+                    </div>
+
+                    {/* Autocomplete Dropdown */}
+                    {showDropdown && suggestions.length > 0 && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            {suggestions.map((suggestion, index) => (
+                                <div key={index}
+                                    className={`px-3 py-2 cursor-pointer transition ${index === selectedIndex ? 'bg-blue-100' : 'hover:bg-gray-100'
+                                        }`}
+                                    onClick={() => addTag(suggestion)}>
+                                    {suggestion}
+                                </div>
+                            ))}
+                            {/* Option to create new tag */}
+                            {input && !allTags.includes(input.trim()) && (
+                                <div className={`px-3 py-2 cursor-pointer border-t text-blue-600 font-medium transition ${selectedIndex === suggestions.length ? 'bg-blue-50' : 'hover:bg-gray-50'
+                                    }`}
+                                    onClick={() => addTag(input)}>
+                                    + Create "{input.trim()}"
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // AUTOCOMPLETE INPUT (For Author, Building, Owner, Condition)
+        const AutocompleteInput = ({ label, value = '', onChange, allBooks = [], field, placeholder = '' }) => {
+            const [showDropdown, setShowDropdown] = useState(false);
+            const [suggestions, setSuggestions] = useState([]);
+            const [selectedIndex, setSelectedIndex] = useState(-1);
+            const inputRef = useRef(null);
+            const dropdownRef = useRef(null);
+
+            // Extract unique values for this field from all books
+            const allValues = useMemo(() => {
+                const valueSet = new Set();
+                allBooks.forEach(book => {
+                    const fieldValue = book[field];
+                    if (fieldValue && typeof fieldValue === 'string' && fieldValue.trim()) {
+                        valueSet.add(fieldValue.trim());
+                    }
+                });
+                return Array.from(valueSet).sort();
+            }, [allBooks, field]);
+
+            // Filter suggestions based on input
+            useEffect(() => {
+                if (!value || value.length < 1) {
+                    setSuggestions([]);
+                    setShowDropdown(false);
+                    return;
+                }
+
+                const filtered = allValues.filter(val =>
+                    val.toLowerCase().includes(value.toLowerCase()) &&
+                    val.toLowerCase() !== value.toLowerCase()
+                );
+                setSuggestions(filtered.slice(0, 8));
+                setShowDropdown(filtered.length > 0);
+                setSelectedIndex(-1);
+            }, [value, allValues]);
+
+            // Select suggestion
+            const selectSuggestion = (suggestion) => {
+                onChange({ target: { value: suggestion } });
+                setShowDropdown(false);
+                setSelectedIndex(-1);
+            };
+
+            // Keyboard navigation
+            const handleKeyDown = (e) => {
+                if (!showDropdown) return;
+
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSelectedIndex(prev =>
+                        prev < suggestions.length - 1 ? prev + 1 : prev
+                    );
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSelectedIndex(prev => prev > 0 ? prev - 1 : -1);
+                } else if (e.key === 'Enter' && selectedIndex >= 0) {
+                    e.preventDefault();
+                    selectSuggestion(suggestions[selectedIndex]);
+                } else if (e.key === 'Escape') {
+                    setShowDropdown(false);
+                    setSelectedIndex(-1);
+                }
+            };
+
+            // Click outside to close
+            useEffect(() => {
+                const handleClickOutside = (e) => {
+                    if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+                        setShowDropdown(false);
+                    }
+                };
+                document.addEventListener('mousedown', handleClickOutside);
+                return () => document.removeEventListener('mousedown', handleClickOutside);
+            }, []);
+
+            return (
+                <div className="relative" ref={dropdownRef}>
+                    <label className="text-xs text-gray-500 font-bold">{label}</label>
+                    <input
+                        ref={inputRef}
+                        type="text"
+                        className="w-full p-3 border rounded-lg"
+                        placeholder={placeholder}
+                        value={value}
+                        onChange={onChange}
+                        onKeyDown={handleKeyDown}
+                        onFocus={() => value && setShowDropdown(suggestions.length > 0)}
+                    />
+
+                    {/* Autocomplete Dropdown */}
+                    {showDropdown && suggestions.length > 0 && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            {suggestions.map((suggestion, index) => (
+                                <div
+                                    key={index}
+                                    className={`px-3 py-2 cursor-pointer transition ${index === selectedIndex ? 'bg-blue-100' : 'hover:bg-gray-100'
+                                        }`}
+                                    onClick={() => selectSuggestion(suggestion)}
+                                >
+                                    {suggestion}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
         // BARCODE SCANNER
         const BarcodeScanner = ({ onDetected, onClose }) => {
             const [online, setOnline] = useState(navigator.onLine);
@@ -518,7 +780,7 @@
         };
 
         // BOOK FORM
-        const BookForm = ({ book, onSave, onCancel, onBarcodeFound, globalCurrency }) => {
+        const BookForm = ({ book, onSave, onCancel, onBarcodeFound, globalCurrency, books = [] }) => {
             const [form, setForm] = useState(book ? { ...book, pages: book.pages || [] } : {
                 title: '', phonetic: '', author_name: '', author_initials: '', owner: '', building: '', shelf: '', isbn: '',
                 price: '', currency: '₹', year: '', lang: 'en', tags: [], status: 'avail', page_count: '', condition: 'Good',
@@ -781,7 +1043,14 @@
                         <div className="space-y-3">
                             <div className="flex gap-2 mb-2">
                                 {['en', 'ml', 'hi', 'ar'].map(l => (
-                                    <button key={l} onClick={() => setForm({ ...form, lang: l, language: LANG_MAP[l] })} className={`px-3 py-1 rounded text-xs font-bold uppercase border ${form.lang === l ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'}`}>{l}</button>
+                                    <button key={l} onClick={() => {
+                                        // Auto-fill phonetic for English books
+                                        const updates = { lang: l, language: LANG_MAP[l] };
+                                        if (l === 'en' && form.title) {
+                                            updates.phonetic = form.title;
+                                        }
+                                        setForm({ ...form, ...updates });
+                                    }} className={`px-3 py-1 rounded text-xs font-bold uppercase border ${form.lang === l ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'}`}>{l}</button>
                                 ))}
                             </div>
 
@@ -791,7 +1060,7 @@
 
                             <div className="flex gap-2 relative">
                                 <div className="flex-1 relative">
-                                    <AutoSuggestInput label="Author Name" field="author_name" value={form.author_name} onChange={(e) => handleChange('author_name', e.target.value)} />
+                                    <AutocompleteInput label="Author Name" field="author_name" value={form.author_name} onChange={(e) => handleChange('author_name', e.target.value)} allBooks={books} placeholder="e.g., J.K. Rowling" />
                                     <button type="button" onClick={() => startVoice('author_name')} className={`absolute right-2 bottom-3 p-1 rounded-full z-10 ${listeningField === 'author_name' ? 'bg-red-500 text-white' : 'text-gray-400'}`}><Icon name="Mic" size={20} /></button>
                                 </div>
                                 <div className="w-1/3">
@@ -809,12 +1078,7 @@
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <VoiceInput label="Pages" field="page_count" value={form.page_count} onChange={(e) => handleChange('page_count', e.target.value)} type="number" lang="en" />
-                                <div>
-                                    <label className="text-xs text-gray-500 font-bold">Condition</label>
-                                    <select className="w-full p-3 border rounded-lg bg-white" value={form.condition} onChange={e => handleChange('condition', e.target.value)}>
-                                        <option>Good</option><option>New</option><option>Old</option><option>Torn</option><option>Loose</option>
-                                    </select>
-                                </div>
+                                <AutocompleteInput label="Condition" field="condition" value={form.condition} onChange={(e) => handleChange('condition', e.target.value)} allBooks={books} placeholder="e.g., Good, New" />
                             </div>
                         </div>
 
@@ -822,7 +1086,7 @@
                         <h3 className="text-xs font-bold text-gray-400 uppercase mt-4">Asset Info</h3>
                         <div className="space-y-3">
                             <div className="relative">
-                                <AutoSuggestInput label="Owner" field="owner" value={form.owner} onChange={(e) => handleChange('owner', e.target.value)} placeholder="e.g. Dad" />
+                                <AutocompleteInput label="Owner" field="owner" value={form.owner} onChange={(e) => handleChange('owner', e.target.value)} allBooks={books} placeholder="e.g., Dad, Mom" />
                                 <button type="button" onClick={() => startVoice('owner')} className={`absolute right-2 bottom-3 p-1 rounded-full z-10 ${listeningField === 'owner' ? 'bg-red-500 text-white' : 'text-gray-400'}`}><Icon name="Mic" size={20} /></button>
                             </div>
 
@@ -845,11 +1109,19 @@
                         {/* LOCATION */}
                         <h3 className="text-xs font-bold text-gray-400 uppercase mt-4">Location</h3>
                         <div className="grid grid-cols-2 gap-4">
-                            <AutoSuggestInput label="Building" field="building" value={form.building} onChange={(e) => handleChange('building', e.target.value)} />
+                            <AutocompleteInput label="Building" field="building" value={form.building} onChange={(e) => handleChange('building', e.target.value)} allBooks={books} placeholder="e.g., Main Library" />
                             <AutoSuggestInput label="Shelf" field="shelf" value={form.shelf} onChange={(e) => handleChange('shelf', e.target.value)} />
                         </div>
 
-                        <VoiceInput label="Tags" field="tags" value={(form.tags || []).join(',')} onChange={(e) => setForm(f => ({ ...f, tags: e.target.value.split(',') }))} onVoice={() => startVoice('tags')} isListening={listeningField === 'tags'} lang="en" placeholder="e.g. history, torn" />
+
+                        <TagTokenInput
+                            label="Tags"
+                            value={form.tags || []}
+                            onChange={(newTags) => setForm(f => ({ ...f, tags: newTags }))}
+                            allBooks={books}
+                            placeholder="Add tags (e.g., Fiction, History)..."
+                        />
+
                     </div>
                 </div>
             );
@@ -2820,7 +3092,7 @@ OUTPUT: ${masterName}
             if (editBook || view === 'add') return (
                 <div className="max-w-md mx-auto min-h-screen bg-gray-50">
                     <AppHeader />
-                    <BookForm book={editBook} onSave={save} onCancel={() => { setEditBook(null); setView('library') }} onBarcodeFound={(b) => { setEditBook(b); setView('add') }} globalCurrency={currency} />
+                    <BookForm book={editBook} onSave={save} onCancel={() => { setEditBook(null); setView('library') }} onBarcodeFound={(b) => { setEditBook(b); setView('add') }} globalCurrency={currency} books={books} />
                 </div>
             );
 
