@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - 'src-tauri/**'
-      - 'index.html'
       - '.github/workflows/build-windows.yml'
   workflow_dispatch:  # Manual trigger button
 
