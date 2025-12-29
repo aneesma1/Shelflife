@@ -3363,13 +3363,20 @@ OUTPUT: ${masterName}
 
             }, []);
 
-            // Pull to refresh logic
+            // Pull to refresh logic - DISABLED when any modal is open
             useEffect(() => {
                 let startY = 0;
                 const spinner = document.getElementById('ptr-spinner');
 
-                const touchStart = (e) => { if (window.scrollY === 0) startY = e.touches[0].clientY; };
+                // Check if any modal/popup is open
+                const isModalOpen = () => document.querySelector('.modal-overlay') !== null;
+
+                const touchStart = (e) => {
+                    if (isModalOpen()) return; // Skip if modal open
+                    if (window.scrollY === 0) startY = e.touches[0].clientY;
+                };
                 const touchMove = (e) => {
+                    if (isModalOpen()) return; // Skip if modal open
                     if (!startY) return;
                     const y = e.touches[0].clientY;
                     const diff = y - startY;
@@ -3379,6 +3386,11 @@ OUTPUT: ${masterName}
                     }
                 };
                 const touchEnd = (e) => {
+                    if (isModalOpen()) {
+                        spinner.style.top = '-50px'; // Hide spinner if modal
+                        startY = 0;
+                        return;
+                    }
                     if (spinner.style.top === '20px') {
                         startY = 0;
                         setTimeout(() => window.location.reload(), 500);
