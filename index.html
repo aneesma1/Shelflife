@@ -83,16 +83,15 @@
             background: conic-gradient(var(--pie-gradient));
         }
 
-        /* Disable pull-to-refresh in all modal/popup windows */
+        /* Disable overscroll in modal overlays (prevent native pull-to-refresh) */
         .modal-overlay {
             overscroll-behavior: none !important;
-            touch-action: none;
+            /* Note: touch-action handled by JS isModalOpen() check */
         }
 
         /* Allow scrolling inside modal content but prevent overscroll */
         .modal-content {
             overscroll-behavior: contain;
-            touch-action: pan-y;
         }
 
         /* Pull to Refresh Spinner */
