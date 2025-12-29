@@ -1593,12 +1593,14 @@
                 const s = new Set();
                 books.forEach(b => {
                     if (b.title) s.add(b.title);
-                    if (b.author) s.add(b.author);
+                    if (b.phonetic) s.add(b.phonetic);
+                    if (b.author_name || b.author) s.add(b.author_name || b.author);
                     if (b.publisher) s.add(b.publisher);
                     if (b.owner) s.add(b.owner);
                     if (b.tags) b.tags.forEach(t => s.add(t));
                 });
-                return [...s].sort();
+                // Limit to 10 suggestions to prevent datalist overflow
+                return [...s].sort().slice(0, 10);
             }, [books]);
 
             const sorted = useMemo(() => {
@@ -2781,30 +2783,27 @@ Exported from ShelfLife`;
             const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
             const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
 
-            // Scan to_merge folder
-            const scanMergeFolder = async () => {
-                if (!window.Capacitor) { alert("Requires Android App"); return; }
+            // Pick files for merge (replaces folder scan for Android 11+ compatibility)
+            const handleFilePick = async (e) => {
+                const pickedFiles = e.target.files;
+                if (!pickedFiles || pickedFiles.length === 0) return;
+
                 setLoading(true);
                 try {
-                    const { Filesystem } = window.Capacitor.Plugins;
-                    const targetDir = Directory[baseStr] || Directory.Documents;
-                    const mergePath = `${folder}/to_merge`;
-
-                    // Ensure folder exists
-                    try { await Filesystem.mkdir({ path: mergePath, directory: targetDir, recursive: true }); } catch (e) { }
-
-                    const result = await Filesystem.readdir({ path: mergePath, directory: targetDir });
-                    const jsonFiles = result.files.filter(f => f.name.endsWith('.json'));
-
                     const scannedFiles = [];
-                    for (const file of jsonFiles) {
+
+                    for (const file of Array.from(pickedFiles)) {
+                        if (!file.name.endsWith('.json')) continue;
+
                         try {
-                            const content = await Filesystem.readFile({
-                                path: `${mergePath}/${file.name}`,
-                                directory: targetDir,
-                                encoding: Encoding.UTF8
+                            const content = await new Promise((resolve, reject) => {
+                                const reader = new FileReader();
+                                reader.onload = (evt) => resolve(evt.target.result);
+                                reader.onerror = reject;
+                                reader.readAsText(file);
                             });
-                            const data = JSON.parse(content.data);
+
+                            const data = JSON.parse(content);
                             const books = Array.isArray(data) ? data : [data];
                             const signature = books.find(b => b.__shelflife_signature__)?.__shelflife_signature__ || null;
                             const actualBooks = books.filter(b => !b.__shelflife_signature__);
@@ -2815,21 +2814,22 @@ Exported from ShelfLife`;
                                 count: actualBooks.length,
                                 signature: signature,
                                 hasImages: actualBooks.some(b => b.front || b.rear),
-                                size: content.data.length
+                                size: content.length
                             });
-                        } catch (e) {
-                            console.error(`Failed to parse ${file.name}:`, e);
+                        } catch (err) {
+                            console.error(`Failed to parse ${file.name}:`, err);
                         }
                     }
 
                     setFiles(scannedFiles);
                     setSelectedFiles(scannedFiles.map((_, i) => i)); // Select all by default
                     if (scannedFiles.length > 0) setStep('preview');
-                    else alert(`No JSON files found in ${mergePath}. Copy backup files there first.`);
-                } catch (e) {
-                    alert("Scan Error: " + e.message);
+                    else alert('No valid JSON files found in selection.');
+                } catch (err) {
+                    alert('File Pick Error: ' + err.message);
                 } finally {
                     setLoading(false);
+                    e.target.value = ''; // Allow re-selecting same files
                 }
             };
 
@@ -2984,17 +2984,21 @@ OUTPUT: ${masterName}
                     {step === 'scan' && (
                         <div className="text-center py-4">
                             <p className="text-sm text-gray-500 mb-3">
-                                Copy backup files to:<br />
-                                <code className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{folder}/to_merge/</code>
+                                Select backup JSON files to merge
                             </p>
-                            <button
-                                onClick={scanMergeFolder}
-                                disabled={loading}
-                                className="px-6 py-3 bg-purple-600 text-white rounded-lg font-bold flex items-center gap-2 mx-auto disabled:opacity-50"
-                            >
-                                <Icon name="Folder" size={18} />
-                                {loading ? 'Scanning...' : 'Scan Merge Folder'}
-                            </button>
+                            <label className="px-6 py-3 bg-purple-600 text-white rounded-lg font-bold flex items-center gap-2 mx-auto cursor-pointer hover:bg-purple-700 w-fit">
+                                <Icon name="FolderOpen" size={18} />
+                                {loading ? 'Loading...' : 'Pick Backup Files'}
+                                <input
+                                    type="file"
+                                    accept=".json"
+                                    multiple
+                                    onChange={handleFilePick}
+                                    disabled={loading}
+                                    className="hidden"
+                                />
+                            </label>
+                            <p className="text-xs text-gray-400 mt-2">Select one or more .json backup files</p>
                         </div>
                     )}
 
