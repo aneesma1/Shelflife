@@ -1828,6 +1828,11 @@
 
             // Pinch zoom handlers with pan support
             const handleTouchStart = (e) => {
+                // Prevent pull-to-refresh when zoomed
+                if (scale > 1) {
+                    e.preventDefault();
+                }
+
                 if (e.touches.length === 1 && scale > 1) {
                     // Single finger drag (only when zoomed)
                     setIsDragging(true);
@@ -1836,7 +1841,8 @@
                         y: e.touches[0].pageY - position.y
                     });
                 } else if (e.touches.length === 2) {
-                    // Pinch zoom
+                    // Pinch zoom - always prevent default
+                    e.preventDefault();
                     setIsDragging(false);
                     const distance = Math.hypot(
                         e.touches[0].pageX - e.touches[1].pageX,
@@ -1907,10 +1913,10 @@ Exported from ShelfLife`;
             return (
                 <div className="fixed inset-0 bg-black/80 z-50 flex items-end sm:items-center justify-center p-4">
                     {zoomImg && (
-                        <div className="fixed inset-0 z-[60] bg-black flex flex-col items-center justify-center">
+                        <div className="fixed inset-0 z-[60] bg-black flex flex-col items-center justify-center" style={{ overscrollBehavior: 'none' }}>
                             <div
-                                className="flex-1 w-full overflow-auto flex items-center justify-center"
-                                style={{ touchAction: 'none' }}
+                                className="flex-1 w-full overflow-hidden flex items-center justify-center"
+                                style={{ touchAction: 'none', overscrollBehavior: 'none' }}
                                 onTouchStart={handleTouchStart}
                                 onTouchMove={handleTouchMove}
                                 onTouchEnd={handleTouchEnd}
