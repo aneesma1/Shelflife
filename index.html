@@ -183,24 +183,104 @@
         // ==========================================
 
         const ImageUtils = {
-            process: (file, width = 600, quality = 0.70) => new Promise((resolve, reject) => {
+            // Process image with proper memory cleanup
+            process: (file, maxWidth = 500, quality = 0.65) => new Promise((resolve, reject) => {
+                // Validate file size (max 10MB)
+                if (file.size > 10 * 1024 * 1024) {
+                    reject(new Error('Image too large. Max 10MB allowed.'));
+                    return;
+                }
+
                 const reader = new FileReader();
-                reader.readAsDataURL(file);
                 reader.onload = (e) => {
                     const img = new Image();
-                    img.src = e.target.result;
+
+                    // Cleanup function for Image object
+                    const cleanup = () => {
+                        img.onload = null;
+                        img.onerror = null;
+                        img.src = '';
+                    };
+
                     img.onload = () => {
+                        try {
+                            const canvas = document.createElement('canvas');
+                            let w = img.width, h = img.height;
+
+                            // More aggressive resizing for memory savings
+                            if (w > maxWidth) {
+                                h = Math.round(h * (maxWidth / w));
+                                w = maxWidth;
+                            }
+
+                            canvas.width = w;
+                            canvas.height = h;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0, w, h);
+
+                            // Use WebP for smaller size
+                            const result = canvas.toDataURL('image/webp', quality);
+
+                            // Cleanup canvas
+                            canvas.width = 0;
+                            canvas.height = 0;
+                            cleanup();
+
+                            resolve(result);
+                        } catch (err) {
+                            cleanup();
+                            reject(err);
+                        }
+                    };
+
+                    img.onerror = (err) => {
+                        cleanup();
+                        reject(new Error('Failed to load image'));
+                    };
+
+                    img.src = e.target.result;
+                };
+
+                reader.onerror = () => reject(new Error('Failed to read file'));
+                reader.readAsDataURL(file);
+            }),
+
+            // Create smaller thumbnail for list view (optimize memory)
+            createThumbnail: (base64, maxSize = 100) => new Promise((resolve) => {
+                if (!base64 || base64 === 'loading') {
+                    resolve(null);
+                    return;
+                }
+
+                const img = new Image();
+                img.onload = () => {
+                    try {
                         const canvas = document.createElement('canvas');
                         let w = img.width, h = img.height;
-                        if (w > width) { h *= width / w; w = width; }
-                        canvas.width = w; canvas.height = h;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, w, h);
-                        resolve(canvas.toDataURL('image/webp', quality));
-                    };
-                    img.onerror = reject;
+
+                        if (w > h) {
+                            h = Math.round(h * (maxSize / w));
+                            w = maxSize;
+                        } else {
+                            w = Math.round(w * (maxSize / h));
+                            h = maxSize;
+                        }
+
+                        canvas.width = w;
+                        canvas.height = h;
+                        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+
+                        const result = canvas.toDataURL('image/webp', 0.5);
+                        canvas.width = 0;
+                        canvas.height = 0;
+                        img.src = '';
+                        resolve(result);
+                    } catch {
+                        resolve(base64); // Fallback to original
+                    }
                 };
-                reader.onerror = reject;
+                img.onerror = () => resolve(null);
+                img.src = base64;
             })
         };
 
@@ -788,6 +868,13 @@
             });
             const [scanMode, setScanMode] = useState(false);
             const [listeningField, setListeningField] = useState(null);
+
+            // Auto-fill phonetic for English books when title changes (works with barcode scanner)
+            useEffect(() => {
+                if (form.lang === 'en' && form.title && !form.phonetic) {
+                    setForm(f => ({ ...f, phonetic: f.title }));
+                }
+            }, [form.title]);
 
             const handleImg = async (e, field) => {
                 const file = e.target.files && e.target.files[0];
@@ -1446,8 +1533,8 @@
                             <div className="grid grid-cols-2 gap-4">
                                 {filtered.map(b => (
                                     <div key={b.id} onClick={() => setDetailBook(b)} className="bg-white p-2 rounded shadow text-center cursor-pointer hover:shadow-md transition-shadow">
-                                        {b.front ? <img src={b.front} className="h-24 mx-auto object-cover mb-2 rounded" /> : <div className="h-24 bg-gray-100 flex items-center justify-center mb-2 rounded"><Icon name="Book" /></div>}
-                                        <div className="font-bold text-sm truncate">{b.title}</div>
+                                        {b.thumb || b.front ? <img src={b.thumb || b.front} loading="lazy" className="h-20 mx-auto object-cover mb-2 rounded" alt="" /> : <div className="h-20 bg-gray-100 flex items-center justify-center mb-2 rounded"><Icon name="Book" /></div>}
+                                        <div className="font-bold text-xs truncate">{b.title}</div>
                                     </div>
                                 ))}
                             </div>
@@ -1455,10 +1542,10 @@
                             <div className="space-y-2">
                                 {filtered.map(b => (
                                     <div key={b.id} onClick={() => setDetailBook(b)} className="bg-white p-3 rounded shadow flex gap-3 items-center cursor-pointer hover:bg-gray-50">
-                                        {b.front ? <img src={b.front} className="w-10 h-14 object-cover rounded" /> : <div className="w-10 h-14 bg-gray-200 rounded flex items-center justify-center"><Icon name="Book" size={16} /></div>}
+                                        {b.thumb || b.front ? <img src={b.thumb || b.front} loading="lazy" className="w-10 h-14 object-cover rounded" alt="" /> : <div className="w-10 h-14 bg-gray-200 rounded flex items-center justify-center"><Icon name="Book" size={16} /></div>}
                                         <div className="flex-1 min-w-0">
                                             <div className="font-bold text-sm truncate">{b.title}</div>
-                                            <div className="text-xs text-gray-500 truncate">{b.author} • {b.publisher}</div>
+                                            <div className="text-xs text-gray-500 truncate">{b.author_name || b.author} • {b.publisher}</div>
                                         </div>
                                         <div className="text-xs font-bold text-gray-400">{b.pub_year}</div>
                                     </div>
@@ -1671,6 +1758,9 @@
             const [scale, setScale] = useState(1);
             const [pinchDistance, setPinchDistance] = useState(null);
             const [pinchScale, setPinchScale] = useState(1);
+            const [position, setPosition] = useState({ x: 0, y: 0 });
+            const [isDragging, setIsDragging] = useState(false);
+            const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
             // Sanitize filename helper
             const sanitizeFilename = (name) => {
@@ -1736,9 +1826,18 @@
                 }
             };
 
-            // Pinch zoom handlers
+            // Pinch zoom handlers with pan support
             const handleTouchStart = (e) => {
-                if (e.touches.length === 2) {
+                if (e.touches.length === 1 && scale > 1) {
+                    // Single finger drag (only when zoomed)
+                    setIsDragging(true);
+                    setDragStart({
+                        x: e.touches[0].pageX - position.x,
+                        y: e.touches[0].pageY - position.y
+                    });
+                } else if (e.touches.length === 2) {
+                    // Pinch zoom
+                    setIsDragging(false);
                     const distance = Math.hypot(
                         e.touches[0].pageX - e.touches[1].pageX,
                         e.touches[0].pageY - e.touches[1].pageY
@@ -1749,7 +1848,15 @@
             };
 
             const handleTouchMove = (e) => {
-                if (e.touches.length === 2 && pinchDistance) {
+                if (isDragging && e.touches.length === 1) {
+                    // Pan/drag image
+                    e.preventDefault();
+                    setPosition({
+                        x: e.touches[0].pageX - dragStart.x,
+                        y: e.touches[0].pageY - dragStart.y
+                    });
+                } else if (e.touches.length === 2 && pinchDistance) {
+                    // Pinch zoom
                     e.preventDefault();
                     const distance = Math.hypot(
                         e.touches[0].pageX - e.touches[1].pageX,
@@ -1762,16 +1869,40 @@
             };
 
             const handleTouchEnd = () => {
+                setIsDragging(false);
                 setPinchDistance(null);
             };
 
-            // Reset scale when image changes
+            // Reset scale and position when image changes
             useEffect(() => {
                 if (zoomImg) {
                     setScale(1);
+                    setPosition({ x: 0, y: 0 });
                     setPinchDistance(null);
                 }
             }, [zoomImg]);
+
+            // Copy book details to clipboard
+            const copyBookDetails = () => {
+                const text = `📚 ${book.title}${book.phonetic && book.phonetic !== book.title ? ` (${book.phonetic})` : ''}
+✍️ ${book.author_name || book.author || 'Unknown'}${book.author_initials ? ` (${book.author_initials})` : ''}
+📖 ISBN: ${book.isbn || 'N/A'}
+📅 Published: ${book.pub_year || '?'} by ${book.publisher || 'Unknown'}
+🌐 Language: ${book.language || book.lang || 'EN'}
+📄 Pages: ${book.page_count || 'N/A'}
+📍 Location: ${book.building || '?'} / ${book.shelf || '?'}
+👤 Owner: ${book.owner || 'N/A'}
+📋 Condition: ${book.condition || 'Good'} | ${book.status === 'avail' ? 'Available' : 'Lent'}
+💰 Value: ${book.currency || ''} ${book.price || 'N/A'}
+🏷️ Tags: ${(book.tags || []).join(', ') || 'None'}
+
+Exported from ShelfLife`;
+                navigator.clipboard.writeText(text).then(() => {
+                    alert('✅ Copied to clipboard!');
+                }).catch(() => {
+                    alert('❌ Copy failed');
+                });
+            };
 
             return (
                 <div className="fixed inset-0 bg-black/80 z-50 flex items-end sm:items-center justify-center p-4">
@@ -1787,8 +1918,12 @@
                                 <img
                                     src={zoomImg}
                                     className="max-w-none object-contain"
-                                    style={{ transform: `scale(${scale})`, transformOrigin: 'center', maxHeight: '85vh' }}
-                                    onDoubleClick={() => setScale(s => s > 1 ? 1 : 2)}
+                                    style={{
+                                        transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
+                                        transformOrigin: 'center',
+                                        maxHeight: '85vh'
+                                    }}
+                                    onDoubleClick={() => { setScale(s => s > 1 ? 1 : 2); setPosition({ x: 0, y: 0 }); }}
                                 />
                             </div>
                             <div className="absolute bottom-6 flex gap-4">
@@ -1802,7 +1937,7 @@
                                     <Icon name="Download" size={24} />
                                 </button>
                             </div>
-                            <button onClick={() => { setZoomImg(null); setScale(1); }} className="absolute top-4 right-4 text-white p-2 bg-black/50 rounded-full">
+                            <button onClick={() => { setZoomImg(null); setScale(1); setPosition({ x: 0, y: 0 }); }} className="absolute top-4 right-4 text-white p-2 bg-black/50 rounded-full">
                                 <Icon name="X" size={32} />
                             </button>
                         </div>
@@ -1816,21 +1951,72 @@
                             {(book.pages || []).map((p, i) => <img key={i} src={p} onClick={() => setZoomImg(p)} className="h-full w-auto object-contain flex-shrink-0 mr-1 bg-black/5 cursor-zoom-in" />)}
                             <button onClick={onClose} className="absolute top-4 right-4 bg-white/50 p-2 rounded-full"><Icon name="X" /></button>
                         </div>
-                        <div className="p-6">
-                            <h1 className="text-2xl font-bold mb-1">{book.title}</h1>
-                            <p className="text-gray-600 mb-4">{book.author}</p>
-
-                            <div className="grid grid-cols-2 gap-4 text-sm mb-6">
-                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">Publisher</span><b>{book.publisher || '-'}</b></div>
-                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">Year</span><b>{book.pub_year || '-'}</b></div>
-                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">Location</span><b>{book.building} {book.shelf}</b></div>
-                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">Pages</span><b>{book.page_count || '-'}</b></div>
-                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">Condition</span><b>{book.condition || '-'}</b></div>
-                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">Owner</span><b>{book.owner || '-'}</b></div>
-                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">ISBN</span><b>{book.isbn || '-'}</b></div>
-                                <div className="bg-gray-50 p-3 rounded"><span className="block text-gray-400 text-xs uppercase">Value</span><b>{book.currency || ''} {book.price}</b></div>
+                        <div className="p-4">
+                            {/* Header with title and copy button */}
+                            <div className="flex justify-between items-start mb-4">
+                                <div className="flex-1">
+                                    <h1 className="text-xl font-bold">{book.title}</h1>
+                                    {book.phonetic && book.phonetic !== book.title && <p className="text-gray-500 text-sm italic">{book.phonetic}</p>}
+                                    <p className="text-gray-600">{book.author_name || book.author} {book.author_initials && `(${book.author_initials})`}</p>
+                                </div>
+                                <button onClick={copyBookDetails} className="p-2 bg-blue-100 rounded-lg hover:bg-blue-200" title="Copy details">
+                                    <Icon name="Copy" size={18} />
+                                </button>
                             </div>
-                            <button onClick={() => onEdit(book)} className="w-full py-4 bg-blue-600 text-white font-bold rounded-xl flex items-center justify-center gap-2"><Icon name="Edit3" /> Edit / Update</button>
+
+                            {/* Compact table with ALL fields */}
+                            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm mb-4 bg-gray-50 p-3 rounded-lg">
+                                <span className="text-gray-500">ISBN:</span>
+                                <span className="font-medium">{book.isbn || '-'}</span>
+
+                                <span className="text-gray-500">Publisher:</span>
+                                <span className="font-medium">{book.publisher || '-'}</span>
+
+                                <span className="text-gray-500">Year:</span>
+                                <span className="font-medium">{book.pub_year || '-'}</span>
+
+                                <span className="text-gray-500">Language:</span>
+                                <span className="font-medium">{book.language || book.lang?.toUpperCase() || 'EN'}</span>
+
+                                <span className="text-gray-500">Pages:</span>
+                                <span className="font-medium">{book.page_count || '-'}</span>
+
+                                <span className="text-gray-500">Building:</span>
+                                <span className="font-medium">{book.building || '-'}</span>
+
+                                <span className="text-gray-500">Shelf:</span>
+                                <span className="font-medium">{book.shelf || '-'}</span>
+
+                                <span className="text-gray-500">Owner:</span>
+                                <span className="font-medium">{book.owner || '-'}</span>
+
+                                <span className="text-gray-500">Condition:</span>
+                                <span className="font-medium">{book.condition || 'Good'}</span>
+
+                                <span className="text-gray-500">Status:</span>
+                                <span className={`font-medium ${book.status === 'avail' ? 'text-green-600' : 'text-orange-600'}`}>
+                                    {book.status === 'avail' ? '✓ Available' : '◈ Lent Out'}
+                                </span>
+
+                                <span className="text-gray-500">Price:</span>
+                                <span className="font-medium">{book.currency || ''} {book.price || '-'}</span>
+                            </div>
+
+                            {/* Tags section */}
+                            {(book.tags || []).length > 0 && (
+                                <div className="mb-4">
+                                    <span className="text-gray-500 text-xs uppercase font-bold block mb-1">Tags</span>
+                                    <div className="flex flex-wrap gap-1">
+                                        {book.tags.map((tag, i) => (
+                                            <span key={i} className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs">{tag}</span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            <button onClick={() => onEdit(book)} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl flex items-center justify-center gap-2">
+                                <Icon name="Edit3" /> Edit / Update
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1950,9 +2136,9 @@
         const Tools = ({ books }) => {
             const [lastRestore, setLastRestore] = useState(null);
             const [showWhatsNew, setShowWhatsNew] = useState(false);
-            const APP_VERSION = '2.1.0';
-            const BUILD_DATE = '2025-12-28 21:43';
-            const COMMIT_HASH = '42f1f77';
+            const APP_VERSION = '2.2.0';
+            const BUILD_DATE = '2025-12-29 18:10';
+            const COMMIT_HASH = 'pending';
 
             useEffect(() => {
                 try {
@@ -2395,15 +2581,15 @@
                                 onClick={() => setShowWhatsNew(!showWhatsNew)}
                                 className="text-xs font-bold mb-1 flex items-center gap-1 hover:underline w-full"
                             >
-                                ✨ What's New in v2.1 {showWhatsNew ? '▼' : '▶'}
+                                ✨ What's New in v2.2 {showWhatsNew ? '▼' : '▶'}
                             </button>
                             {showWhatsNew && (
                                 <ul className="text-xs space-y-0.5 list-disc list-inside mt-2">
-                                    <li>Tag tokenization with pills/chips UI</li>
-                                    <li>Autocomplete for Author, Building, Owner, Condition</li>
-                                    <li>Pinch zoom for images</li>
-                                    <li>Images folder organization</li>
-                                    <li>Bulk edit tag tokenization</li>
+                                    <li>Barcode auto-fill for phonetic field</li>
+                                    <li>Compact book detail view (ALL fields)</li>
+                                    <li>Copy to clipboard button</li>
+                                    <li>Pan/drag support for zoomed images</li>
+                                    <li>Unified restore button (all formats)</li>
                                 </ul>
                             )}
                         </div>
@@ -2537,16 +2723,11 @@
 
                             <h4 className="font-bold text-xs uppercase text-yellow-800 mb-2">Restore</h4>
                             <div className="space-y-2">
-                                <label className="text-xs text-gray-500 font-bold uppercase block">📥 Restore from Backup</label>
-                                <label className="w-full py-2 bg-green-600 text-white rounded text-xs font-bold flex items-center justify-center gap-2 cursor-pointer">
-                                    <Icon name="RefreshCcw" /> Smart Restore (Pick Files)
+                                <label className="w-full py-3 bg-green-600 text-white rounded text-sm font-bold flex items-center justify-center gap-2 cursor-pointer hover:bg-green-700">
+                                    <Icon name="RefreshCcw" /> Restore Backup
                                     <input type="file" onChange={handleSmartRestore} accept=".json" multiple className="hidden" />
                                 </label>
-                                <p className="text-[9px] text-gray-500 text-center">Select one or more backup files - works with chunked backups</p>
-                                <label className="w-full py-2 bg-gray-400 text-white rounded text-xs font-bold flex items-center justify-center gap-2 cursor-pointer">
-                                    <Icon name="Upload" /> Legacy Single File
-                                    <input type="file" onChange={handleLegacyImport} accept=".json" className="hidden" />
-                                </label>
+                                <p className="text-[9px] text-gray-500 text-center">Supports all formats: chunked backups, legacy files, single/multiple files</p>
                             </div>
                         </div>
                     </div>
