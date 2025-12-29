@@ -2552,8 +2552,56 @@ Exported from ShelfLife`;
                         console.error(`Error processing ${file.name}:`, err);
                     }
                 }
+                // Generate automatic restore logs (TXT and CSV)
+                const now = new Date();
+                const ts = now.toISOString().replace(/[:.]/g, '-').slice(0, 16);
+                const logFolder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
+                const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
 
-                alert(`Restore Complete (${mode})\n\nScanned: ${stats.total}\nAdded: ${stats.added}\nDuplicates: ${stats.duplicates}\nSkipped: ${stats.skipped}`);
+                const txtLog = `========================================
+ShelfLife Restore Log
+========================================
+Date: ${now.toLocaleString()}
+Mode: ${mode.toUpperCase()}
+----------------------------------------
+SOURCE FILES:
+${allFiles.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
+${signature ? `\nBackup Device: ${signature.device_nickname || 'Unknown'}\nBackup Model: ${signature.device_model || 'Unknown'}` : '\nLegacy backup (no signature)'}
+----------------------------------------
+RESULT:
+Total Scanned: ${stats.total}
+Added: ${stats.added}
+Duplicates Found: ${stats.duplicates}
+Skipped: ${stats.skipped}
+========================================`;
+
+                const csvLog = `Date,Mode,Files,Scanned,Added,Duplicates,Skipped\n"${now.toISOString()}","${mode}","${allFiles.map(f => f.name).join('; ')}",${stats.total},${stats.added},${stats.duplicates},${stats.skipped}`;
+
+                // Save logs if on Capacitor
+                if (window.Capacitor) {
+                    try {
+                        const { Filesystem } = window.Capacitor.Plugins;
+                        const targetDir = Directory[baseStr] || Directory.Documents;
+
+                        await Filesystem.writeFile({
+                            path: `${logFolder}/restore_log_${ts}.txt`,
+                            directory: targetDir,
+                            data: txtLog,
+                            encoding: Encoding.UTF8
+                        });
+
+                        await Filesystem.writeFile({
+                            path: `${logFolder}/restore_log_${ts}.csv`,
+                            directory: targetDir,
+                            data: csvLog,
+                            encoding: Encoding.UTF8
+                        });
+                    } catch (logErr) {
+                        console.error('Failed to save restore logs:', logErr);
+                    }
+                }
+
+                alert(`Restore Complete (${mode})\n\nScanned: ${stats.total}\nAdded: ${stats.added}\nDuplicates: ${stats.duplicates}\nSkipped: ${stats.skipped}\n\n📝 Logs saved to ${logFolder}/`);
                 window.location.reload();
             };
 
@@ -2706,18 +2754,7 @@ Exported from ShelfLife`;
                                     ));
                                 })()}
                             </div>
-                            <button
-                                onClick={() => {
-                                    const logs = localStorage.getItem('shelfLife_restoreLogs');
-                                    if (!logs) return alert("No history to export");
-                                    const csv = "Date,Time,Source,Mode,Added,Dupes,Skipped,Status\n" +
-                                        JSON.parse(logs).map(l => `${l.timestamp},${l.source},${l.mode},${l.added},${l.duplicates},${l.skipped},${l.status}`).join('\n');
-                                    ExportUtils.download(csv, `Restore_Logs_${ExportUtils.getTimestamp()}.csv`, 'text/csv');
-                                }}
-                                className="w-full mt-2 py-2 border border-blue-200 text-blue-600 rounded text-xs font-bold hover:bg-blue-50"
-                            >
-                                Export Logs to CSV
-                            </button>
+                            <p className="text-xs text-gray-400 mt-2 text-center">📝 Restore logs are automatically saved to your backup folder</p>
                         </div>
                         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                             <h4 className="font-bold text-xs uppercase text-yellow-800 mb-2">Storage Settings</h4>
