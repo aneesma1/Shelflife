@@ -1610,14 +1610,15 @@
                     if (search.query) {
                         const q = search.query.toLowerCase();
                         const match = (b.title || '').toLowerCase().includes(q) ||
+                            (b.phonetic || '').toLowerCase().includes(q) ||
                             (b.author || '').toLowerCase().includes(q) ||
-                            (b.isbn || '').includes(q) ||
+                            (b.author_name || '').toLowerCase().includes(q) ||
+                            (b.isbn || '').toLowerCase().includes(q) ||
                             (b.tags || []).some(t => t.toLowerCase().includes(q)) ||
                             (b.owner || '').toLowerCase().includes(q) ||
                             (b.building || '').toLowerCase().includes(q) ||
                             (b.shelf || '').toLowerCase().includes(q) ||
-                            (b.phonetic || '').toLowerCase().includes(q) ||
-                            (b.pub_year || '').includes(q) ||
+                            (b.pub_year || '').toString().includes(q) ||
                             (b.publisher || '').toLowerCase().includes(q);
                         if (!match) return false;
                     }
@@ -1713,29 +1714,35 @@
                     </div>
 
                     <div className="p-4">
+                        {/* Limit results to prevent keyboard overlap while typing */}
+                        {search.query && sorted.length > 6 && (
+                            <div className="text-xs text-center text-gray-500 mb-2 bg-blue-50 py-1 rounded">
+                                Showing 6 of {sorted.length} results. Clear search to see all.
+                            </div>
+                        )}
                         {viewMode === 'grid' ? (
                             <div className="grid grid-cols-2 gap-4">
-                                {sorted.map(b => (
+                                {(search.query ? sorted.slice(0, 6) : sorted).map(b => (
                                     <div key={b.id} onClick={() => handleCardClick(b)} className={`bg-white p-3 rounded-xl shadow-sm border relative cursor-pointer ${selected.includes(b.id) ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-100'}`}>
                                         {selectMode && <div className={`absolute top-2 right-2 w-5 h-5 rounded-full border-2 ${selected.includes(b.id) ? 'bg-blue-500 border-blue-500' : 'border-gray-300'} flex items-center justify-center`}>{selected.includes(b.id) && <Icon name="CheckSquare" className="text-white" size={12} />}</div>}
                                         <div className="w-full h-40 bg-gray-100 rounded-lg overflow-hidden mb-2">
                                             {b.front ? <img src={b.front} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-300"><Icon name="Book" size={32} /></div>}
                                         </div>
                                         <h3 className="font-bold leading-tight text-sm line-clamp-2">{b.title}</h3>
-                                        <p className="text-xs text-gray-500 truncate">{b.author}</p>
+                                        <p className="text-xs text-gray-500 truncate">{b.author_name || b.author}</p>
                                         <div className="absolute top-2 left-2 bg-black/50 text-white text-[10px] px-2 rounded">{b.currency || ''} {b.price}</div>
                                     </div>
                                 ))}
                             </div>
                         ) : (
                             <div className="space-y-2">
-                                {sorted.map(b => (
+                                {(search.query ? sorted.slice(0, 6) : sorted).map(b => (
                                     <div key={b.id} onClick={() => handleCardClick(b)} className={`bg-white p-3 rounded-xl shadow-sm border flex gap-3 items-center relative cursor-pointer ${selected.includes(b.id) ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-100'}`}>
                                         {selectMode && <div className={`absolute top-2 right-2 w-5 h-5 rounded-full border-2 ${selected.includes(b.id) ? 'bg-blue-500 border-blue-500' : 'border-gray-300'} flex items-center justify-center`}>{selected.includes(b.id) && <Icon name="CheckSquare" className="text-white" size={12} />}</div>}
                                         {b.front ? <img src={b.front} className="w-12 h-16 object-cover rounded" /> : <div className="w-12 h-16 bg-gray-200 rounded flex items-center justify-center"><Icon name="Book" size={16} /></div>}
                                         <div className="flex-1 min-w-0">
                                             <h3 className="font-bold text-sm truncate">{b.title}</h3>
-                                            <p className="text-xs text-gray-500 truncate">{b.author}</p>
+                                            <p className="text-xs text-gray-500 truncate">{b.author_name || b.author}</p>
                                             <div className="text-[10px] text-gray-400">{b.publisher} • {b.pub_year}</div>
                                         </div>
                                         <div className="font-bold text-sm">{b.currency || ''} {b.price}</div>
