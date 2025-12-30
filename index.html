@@ -554,6 +554,117 @@
             );
         };
 
+        // DYNAMIC SEARCH INPUT with viewport-aware dropdown (avoids keyboard)
+        const DynamicSearchInput = ({ value, onChange, suggestions, placeholder, icon }) => {
+            const [showDropdown, setShowDropdown] = useState(false);
+            const [maxHeight, setMaxHeight] = useState(150);
+            const [filteredSuggestions, setFilteredSuggestions] = useState([]);
+            const inputRef = useRef(null);
+            const dropdownRef = useRef(null);
+
+            // Calculate max dropdown height based on available viewport space
+            const calculateMaxHeight = useCallback(() => {
+                if (!inputRef.current) return 150;
+
+                const rect = inputRef.current.getBoundingClientRect();
+                const viewportHeight = window.visualViewport?.height || window.innerHeight;
+
+                // Estimate keyboard takes ~40% of screen on mobile
+                const estimatedKeyboardHeight = viewportHeight * 0.4;
+                const safeGap = 20; // Gap above keyboard
+
+                // Available space = from bottom of input to keyboard
+                const available = viewportHeight - rect.bottom - estimatedKeyboardHeight - safeGap;
+
+                // Clamp between 80px (min) and 250px (max)
+                return Math.max(80, Math.min(available, 250));
+            }, []);
+
+            // Filter suggestions based on input
+            useEffect(() => {
+                if (!value || value.length < 1) {
+                    setFilteredSuggestions([]);
+                    setShowDropdown(false);
+                    return;
+                }
+
+                const q = value.toLowerCase();
+                const filtered = suggestions.filter(s =>
+                    s.toLowerCase().includes(q)
+                ).slice(0, 20); // Max 20 suggestions
+
+                setFilteredSuggestions(filtered);
+                setShowDropdown(filtered.length > 0);
+            }, [value, suggestions]);
+
+            // Recalculate height on viewport changes
+            useEffect(() => {
+                const updateHeight = () => setMaxHeight(calculateMaxHeight());
+
+                updateHeight();
+                window.addEventListener('resize', updateHeight);
+                window.visualViewport?.addEventListener('resize', updateHeight);
+
+                return () => {
+                    window.removeEventListener('resize', updateHeight);
+                    window.visualViewport?.removeEventListener('resize', updateHeight);
+                };
+            }, [calculateMaxHeight]);
+
+            // Close dropdown when clicking outside
+            useEffect(() => {
+                const handleClickOutside = (e) => {
+                    if (dropdownRef.current && !dropdownRef.current.contains(e.target) &&
+                        inputRef.current && !inputRef.current.contains(e.target)) {
+                        setShowDropdown(false);
+                    }
+                };
+                document.addEventListener('mousedown', handleClickOutside);
+                return () => document.removeEventListener('mousedown', handleClickOutside);
+            }, []);
+
+            const selectSuggestion = (s) => {
+                onChange({ target: { value: s } });
+                setShowDropdown(false);
+            };
+
+            return (
+                <div className="relative flex-1">
+                    {icon && <Icon name={icon} className="absolute left-2 top-2 text-gray-400" size={14} />}
+                    <input
+                        ref={inputRef}
+                        className={`w-full p-2 border rounded ${icon ? 'pl-8' : ''}`}
+                        placeholder={placeholder}
+                        value={value}
+                        onChange={onChange}
+                        onFocus={() => filteredSuggestions.length > 0 && setShowDropdown(true)}
+                    />
+                    {showDropdown && filteredSuggestions.length > 0 && (
+                        <div
+                            ref={dropdownRef}
+                            className="absolute left-0 right-0 top-full mt-1 bg-white border rounded-lg shadow-lg z-50 overflow-y-auto"
+                            style={{ maxHeight: `${maxHeight}px` }}
+                        >
+                            {filteredSuggestions.map((s, i) => (
+                                <div
+                                    key={i}
+                                    className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-b-0"
+                                    onClick={() => selectSuggestion(s)}
+                                >
+                                    {s}
+                                </div>
+                            ))}
+                            {filteredSuggestions.length === 20 && (
+                                <div className="px-3 py-1 text-xs text-gray-400 text-center bg-gray-50">
+                                    Showing first 20 results
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
         // VOICE INPUT (Wrapped)
         const VoiceInput = ({ label, value, onChange, onVoice, isListening, lang, type = "text", placeholder }) => {
             return (
@@ -1599,8 +1710,8 @@
                     if (b.owner) s.add(b.owner);
                     if (b.tags) b.tags.forEach(t => s.add(t));
                 });
-                // Limit to 10 suggestions to prevent datalist overflow
-                return [...s].sort().slice(0, 10);
+                // DynamicSearchInput handles filtering (max 20 shown)
+                return [...s].sort();
             }, [books]);
 
             const sorted = useMemo(() => {
@@ -1691,19 +1802,13 @@
                             placeholder="Filter by tags..."
                         />
                         <div className="mt-2 text-xs flex gap-2">
-                            <div className="relative flex-1">
-                                <Icon name="Search" className="absolute left-2 top-2 text-gray-400" size={14} />
-                                <input
-                                    className="w-full p-2 pl-8 border rounded"
-                                    placeholder="Search Title, Author, ISBN..."
-                                    value={search.query}
-                                    list="lib-suggestions"
-                                    onChange={e => setSearch({ ...search, query: e.target.value })}
-                                />
-                                <datalist id="lib-suggestions">
-                                    {suggestions.map((s, i) => <option key={i} value={s} />)}
-                                </datalist>
-                            </div>
+                            <DynamicSearchInput
+                                value={search.query}
+                                onChange={e => setSearch({ ...search, query: e.target.value })}
+                                suggestions={suggestions}
+                                placeholder="Search Title, Author, ISBN..."
+                                icon="Search"
+                            />
                             {(search.query || search.tags.length > 0 || search.showDupes) && (
                                 <button
                                     onClick={() => setSearch({ tags: [], query: '', showDupes: false })}
