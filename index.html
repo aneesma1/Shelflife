@@ -1899,6 +1899,10 @@
                 try {
                     if (window.Capacitor) {
                         const { Filesystem } = window.Capacitor.Plugins;
+                        const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
+                        const targetDir = Directory[baseStr] || Directory.Documents;
+                        const base64Data = imgSrc.split(',')[1] || imgSrc;
+
                         // Save to ShelfLife/IMAGES
                         const imagesPath = 'ShelfLife/IMAGES';
                         try {
@@ -1927,7 +1931,7 @@
                             // Fallback: save to root folder
                             const fallbackName = `BookImage_${Date.now()}.jpg`;
                             await Filesystem.writeFile({
-                                path: `${folder}/${fallbackName}`,
+                                path: `ShelfLife/${fallbackName}`,
                                 data: base64Data,
                                 directory: targetDir
                             });
