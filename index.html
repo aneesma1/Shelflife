@@ -319,8 +319,8 @@
                 if (window.Capacitor) {
                     try {
                         const { Filesystem } = window.Capacitor.Plugins;
-                        // Use specific folder if provided, else backup preference, else default
-                        const folder = specificFolder || localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
+                        // Use specific folder if provided, else default to ShelfLife/Exports
+                        const folder = specificFolder || 'ShelfLife/Exports';
                         const baseStr = specificBase || localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
 
                         // Map string to Directory Constant
@@ -373,7 +373,7 @@
                 }
             },
             csv: (books, filenamePrefix = "ShelfLife_Export", specificFolder = null, specificBase = null) => {
-                const folder = specificFolder || localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports';
+                const folder = specificFolder || 'ShelfLife/Exports';
                 const base = specificBase || localStorage.getItem('shelfLife_exportBase') || 'DOCUMENTS';
 
                 const maxTags = books.reduce((max, b) => Math.max(max, (b.tags || []).length), 0);
@@ -393,14 +393,14 @@
                 ExportUtils.download("\uFEFF" + header + rows, `${safePrefix}_${timestamp}.csv`, "text/csv;charset=utf-8", folder, base);
             },
             htmlText: (books, type, title = "Library Inventory", specificFolder = null, specificBase = null) => {
-                const folder = specificFolder || localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports';
+                const folder = specificFolder || 'ShelfLife/Exports';
                 const base = specificBase || localStorage.getItem('shelfLife_exportBase') || 'DOCUMENTS';
 
                 let html = `<html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;padding:20px;} table{width:100%;border-collapse:collapse;} th,td{border:1px solid #ddd;padding:8px;} th{background:#f3f3f3;} tr:nth-child(even){background:#f9f9f9;}</style></head><body><h1>${title}</h1><table><tr><th>Title</th><th>Author</th><th>Publisher</th><th>Year</th><th>Loc</th><th>Cond</th><th>Price</th></tr>${books.map(b => `<tr><td>${b.title}</td><td>${b.author_name || b.author} ${b.author_initials || ''}</td><td>${b.publisher}</td><td>${b.pub_year}</td><td>${b.building} ${b.shelf}</td><td>${b.condition}</td><td>${b.currency || ''} ${b.price}</td></tr>`).join('')}</table></body></html>`;
                 ExportUtils.download(html, `ShelfLife_List_${ExportUtils.getTimestamp()}.html`, "text/html;charset=utf-8", folder, base);
             },
             htmlVisual: (books, type, title = "Visual Catalogue", specificFolder = null, specificBase = null) => {
-                const folder = specificFolder || localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports';
+                const folder = specificFolder || 'ShelfLife/Exports';
                 const base = specificBase || localStorage.getItem('shelfLife_exportBase') || 'DOCUMENTS';
 
                 let html = `<html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;padding:20px;} .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:20px;} .card{border:1px solid #ddd;padding:10px;text-align:center;border-radius:8px;} img{width:100%;height:150px;object-fit:cover;margin-bottom:10px;border-radius:4px;} .meta{font-size:12px;color:#666;}</style></head><body><h1>${title}</h1><div class="grid">${books.map(b => `<div class="card">${b.front ? `<img src="${b.front}"/>` : ''}<b>${b.title}</b><br><small>${b.author_name || b.author} ${b.author_initials || ''}</small><br><span class="meta">${b.publisher} • ${b.pub_year}</span></div>`).join('')}</div></body></html>`;
@@ -1899,13 +1899,8 @@
                 try {
                     if (window.Capacitor) {
                         const { Filesystem } = window.Capacitor.Plugins;
-                        const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
-                        const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
-                        const targetDir = Directory[baseStr] || Directory.Documents;
-                        const base64Data = imgSrc.split(',')[1] || imgSrc;
-
-                        // Create Images subfolder
-                        const imagesPath = `${folder}/Images`;
+                        // Save to ShelfLife/IMAGES
+                        const imagesPath = 'ShelfLife/IMAGES';
                         try {
                             await Filesystem.mkdir({
                                 path: imagesPath,
@@ -2290,13 +2285,13 @@ Exported from ShelfLife`;
                     const now = new Date();
                     const ts = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '_' + String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0') + '-' + String(now.getSeconds()).padStart(2, '0');
 
-                    const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
+                    // NEW FOLDER: ShelfLife/Backups
+                    const folder = 'ShelfLife/Backups';
                     const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
                     const targetDir = Directory[baseStr] || Directory.Documents;
 
-                    // Ensure Folders (main + to_merge)
+                    // Ensure Folders
                     try { await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true }); } catch (e) { }
-                    try { await Filesystem.mkdir({ path: `${folder}/to_merge`, directory: targetDir, recursive: true }); } catch (e) { }
 
                     const TARGET_SIZE = 9 * 1024 * 1024; // 9MB safe limit for chunks
                     let part = 1;
@@ -2660,7 +2655,7 @@ Exported from ShelfLife`;
                 // Generate automatic restore logs (TXT and CSV)
                 const now = new Date();
                 const ts = now.toISOString().replace(/[:.]/g, '-').slice(0, 16);
-                const logFolder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
+                const logFolder = 'ShelfLife/Restore';
                 const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
 
                 const txtLog = `========================================
@@ -2723,20 +2718,39 @@ Skipped: ${stats.skipped}
                 if (!window.Capacitor) return alert("This feature requires the Android app.");
                 try {
                     const { Filesystem } = window.Capacitor.Plugins;
-                    const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
                     const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
                     const targetDir = Directory[baseStr] || Directory.Documents;
 
-                    await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true });
+                    // NEW FOLDER STRUCTURE (v2.2+)
+                    const root = 'ShelfLife';
+                    const folders = [
+                        root,
+                        `${root}/Backups`,
+                        `${root}/IMAGES`,
+                        `${root}/Restore`,
+                        `${root}/Exports`,
+                        `${root}/to_merge`
+                    ];
+
+                    // Create all folders
+                    for (const f of folders) {
+                        try {
+                            await Filesystem.mkdir({ path: f, directory: targetDir, recursive: true });
+                        } catch (e) {
+                            // Ignore if exists
+                        }
+                    }
+
                     await Filesystem.writeFile({
-                        path: `${folder}/Test_Write.txt`,
+                        path: `${root}/Backups/Test_Write.txt`,
                         data: "Access Verified " + new Date().toISOString(),
                         directory: targetDir,
                         encoding: Encoding.UTF8
                     });
-                    alert(`Success!\nFolder "${folder}" is writable in ${baseStr}.`);
-                } catch (e) {
-                    alert("Folder Access Failed: " + e.message);
+
+                    alert(`Storage Verified! ✅\n\nCreated/Verified:\n📂 ${root}/\n  ├─ Backups/\n  ├─ IMAGES/\n  ├─ Restore/\n  ├─ Exports/\n  └─ to_merge/`);
+                } catch (err) {
+                    alert(`Storage Error: ${err.message}\nCheck app permissions.`);
                 }
             };
 
@@ -2777,25 +2791,8 @@ Skipped: ${stats.skipped}
                     {/* REPORTS SECTION */}
                     <div className="bg-white p-4 rounded-xl shadow border border-blue-100">
                         <h3 className="font-bold mb-3 text-blue-800">Reports</h3>
-                        <div className="mb-3 bg-blue-50 p-2 rounded">
-                            <label className="text-[10px] font-bold text-blue-800 uppercase block mb-1">Export Location</label>
-                            <div className="flex gap-2">
-                                <select
-                                    className="p-1 text-xs border rounded bg-white"
-                                    defaultValue={localStorage.getItem('shelfLife_exportBase') || 'DOCUMENTS'}
-                                    onChange={(e) => localStorage.setItem('shelfLife_exportBase', e.target.value)}
-                                >
-                                    <option value="DOCUMENTS">Documents/</option>
-                                    <option value="EXTERNAL_STORAGE">External/</option>
-                                </select>
-                                <input
-                                    className="flex-1 p-1 text-xs border rounded"
-                                    placeholder="ShelfLife_Exports"
-                                    defaultValue={localStorage.getItem('shelfLife_exportFolder') || 'ShelfLife_Exports'}
-                                    onBlur={(e) => localStorage.setItem('shelfLife_exportFolder', e.target.value || 'ShelfLife_Exports')}
-                                />
-                            </div>
-                        </div>
+                        <p className="text-[10px] text-gray-400 mb-2 italic">Reports saved to ShelfLife/Exports</p>
+
                         <div className="space-y-2">
                             <button onClick={() => ExportUtils.htmlText(books, 'Mix', 'Library Inventory')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="List" /> HTML Text Report</button>
                             <button onClick={() => ExportUtils.htmlVisual(books, 'Mix', 'Visual Catalogue')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Image" /> HTML Visual Catalogue</button>
@@ -2991,7 +2988,7 @@ Skipped: ${stats.skipped}
                     const targetDir = Directory[baseStr] || Directory.Documents;
                     const now = new Date();
                     const ts = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '_' + String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0');
-                    const sessionFolder = `${folder}/Merged_${ts}`;
+                    const sessionFolder = `ShelfLife/merge_${ts}`;
                     const workFolder = `${sessionFolder}/work_files`;
                     const mergePath = `${folder}/to_merge`;
                     const deviceName = localStorage.getItem('shelfLife_deviceName') || 'MYPHONE';
@@ -3130,7 +3127,7 @@ OUTPUT: ${masterName}
                             </p>
                             <label className="px-6 py-3 bg-purple-600 text-white rounded-lg font-bold flex items-center gap-2 mx-auto cursor-pointer hover:bg-purple-700 w-fit">
                                 <Icon name="FolderOpen" size={18} />
-                                {loading ? 'Loading...' : 'Pick Backup Files'}
+                                {loading ? 'Loading...' : 'Merge backup files'}
                                 <input
                                     type="file"
                                     accept=".json"
