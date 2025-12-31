@@ -918,22 +918,442 @@
                             style={{ maxHeight: `${maxHeight}px` }}>
                             {suggestions.map((suggestion, index) => (
                                 <div key={index}
-                                    className={`px-3 py-2 cursor-pointer transition ${index === selectedIndex ? 'bg-blue-100' : 'hover:bg-gray-100'
-                                        }`}
+                                    className={`px-3 py-2 cursor-pointer transition ${index === selectedIndex ? 'bg-blue-100' : 'hover:bg-gray-100'}`}
                                     onClick={() => addTag(suggestion)}>
                                     {suggestion}
                                 </div>
                             ))}
                             {/* Option to create new tag */}
                             {input && !allTags.includes(input.trim()) && (
-                                <div className={`px-3 py-2 cursor-pointer border-t text-blue-600 font-medium transition ${selectedIndex === suggestions.length ? 'bg-blue-50' : 'hover:bg-gray-50'
-                                    }`}
+                                <div className={`px-3 py-2 cursor-pointer border-t text-blue-600 font-medium transition ${selectedIndex === suggestions.length ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
                                     onClick={() => addTag(input)}>
                                     + Create "{input.trim()}"
                                 </div>
                             )}
                         </div>
                     )}
+                </div>
+            );
+        };
+
+        // TAG MANAGER - Colorful chip tokens with full CRUD operations
+        const TAG_COLORS = [
+            { bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-300' },
+            { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-300' },
+            { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300' },
+            { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300' },
+            { bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-300' },
+            { bg: 'bg-pink-100', text: 'text-pink-800', border: 'border-pink-300' },
+            { bg: 'bg-indigo-100', text: 'text-indigo-800', border: 'border-indigo-300' },
+            { bg: 'bg-orange-100', text: 'text-orange-800', border: 'border-orange-300' },
+        ];
+
+        const getTagColor = (tag) => {
+            const hash = tag.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+            return TAG_COLORS[hash % TAG_COLORS.length];
+        };
+
+        const TagManagerModal = ({ isOpen, onClose, books, onTagsUpdated }) => {
+            const [allTags, setAllTags] = useState([]);
+            const [selectedTags, setSelectedTags] = useState([]);
+            const [searchQuery, setSearchQuery] = useState('');
+            const [showAddInput, setShowAddInput] = useState(false);
+            const [newTagName, setNewTagName] = useState('');
+            const [renameTag, setRenameTag] = useState(null);
+            const [renameValue, setRenameValue] = useState('');
+            const [deleteTag, setDeleteTag] = useState(null);
+            const [deleteAction, setDeleteAction] = useState('remove'); // remove | replaceExisting | replaceNew
+            const [replaceTarget, setReplaceTarget] = useState('');
+            const [showMergeModal, setShowMergeModal] = useState(false);
+            const [mergeTarget, setMergeTarget] = useState('');
+            const [mergeNewName, setMergeNewName] = useState('');
+            const [mergeMode, setMergeMode] = useState('existing'); // existing | new
+            const [duplicates, setDuplicates] = useState([]);
+            const [isProcessing, setIsProcessing] = useState(false);
+
+            // Calculate all tags with counts
+            const refreshTags = useCallback(async () => {
+                const allBooks = await db.books.toArray();
+                const tagMap = new Map();
+                allBooks.forEach(book => {
+                    (book.tags || []).forEach(tag => {
+                        if (!tagMap.has(tag)) tagMap.set(tag, { count: 0, bookIds: [] });
+                        tagMap.get(tag).count++;
+                        tagMap.get(tag).bookIds.push(book.id);
+                    });
+                });
+                const tags = Array.from(tagMap.entries())
+                    .map(([tag, data]) => ({ tag, ...data }))
+                    .sort((a, b) => b.count - a.count);
+                setAllTags(tags);
+
+                // Find duplicates (case-insensitive)
+                const dupes = [];
+                for (let i = 0; i < tags.length; i++) {
+                    for (let j = i + 1; j < tags.length; j++) {
+                        if (tags[i].tag.toLowerCase() === tags[j].tag.toLowerCase() && tags[i].tag !== tags[j].tag) {
+                            dupes.push({ tag1: tags[i].tag, tag2: tags[j].tag });
+                        }
+                    }
+                }
+                setDuplicates(dupes);
+            }, []);
+
+            useEffect(() => {
+                if (isOpen) refreshTags();
+            }, [isOpen, refreshTags]);
+
+            // Filter tags by search
+            const filteredTags = useMemo(() => {
+                if (!searchQuery.trim()) return allTags;
+                const q = searchQuery.toLowerCase();
+                return allTags.filter(t => t.tag.toLowerCase().includes(q));
+            }, [allTags, searchQuery]);
+
+            // Toggle tag selection
+            const toggleTagSelection = (tag) => {
+                setSelectedTags(prev =>
+                    prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+                );
+            };
+
+            // Add new tag (placeholder - only creates when assigned)
+            const handleAddTag = () => {
+                if (!newTagName.trim()) return;
+                // Tags are created when assigned, we just close the input
+                alert(`Tag "${newTagName.trim()}" will be available when you assign it to a book.`);
+                setNewTagName('');
+                setShowAddInput(false);
+            };
+
+            // Rename tag
+            const handleRename = async () => {
+                if (!renameTag || !renameValue.trim()) return;
+                setIsProcessing(true);
+                try {
+                    const booksWithTag = await db.books.where('tags').equals(renameTag).toArray();
+                    for (const book of booksWithTag) {
+                        book.tags = book.tags.map(t => t === renameTag ? renameValue.trim() : t);
+                        await db.books.put(book);
+                    }
+                    alert(`Renamed "${renameTag}" → "${renameValue.trim()}" in ${booksWithTag.length} books`);
+                    setRenameTag(null);
+                    setRenameValue('');
+                    await refreshTags();
+                    onTagsUpdated && onTagsUpdated();
+                } finally {
+                    setIsProcessing(false);
+                }
+            };
+
+            // Delete tag with options
+            const handleDelete = async () => {
+                if (!deleteTag) return;
+                setIsProcessing(true);
+                try {
+                    const booksWithTag = await db.books.where('tags').equals(deleteTag).toArray();
+
+                    for (const book of booksWithTag) {
+                        if (deleteAction === 'remove') {
+                            book.tags = book.tags.filter(t => t !== deleteTag);
+                        } else if (deleteAction === 'replaceExisting' && replaceTarget) {
+                            book.tags = book.tags.map(t => t === deleteTag ? replaceTarget : t);
+                            // Remove duplicates
+                            book.tags = [...new Set(book.tags)];
+                        } else if (deleteAction === 'replaceNew' && replaceTarget.trim()) {
+                            book.tags = book.tags.map(t => t === deleteTag ? replaceTarget.trim() : t);
+                        }
+                        await db.books.put(book);
+                    }
+
+                    const actionText = deleteAction === 'remove' ? 'removed from' : 'replaced in';
+                    alert(`"${deleteTag}" ${actionText} ${booksWithTag.length} books`);
+                    setDeleteTag(null);
+                    setDeleteAction('remove');
+                    setReplaceTarget('');
+                    await refreshTags();
+                    onTagsUpdated && onTagsUpdated();
+                } finally {
+                    setIsProcessing(false);
+                }
+            };
+
+            // Merge multiple tags
+            const handleMerge = async () => {
+                if (selectedTags.length < 2) return;
+                const targetName = mergeMode === 'existing' ? mergeTarget : mergeNewName.trim();
+                if (!targetName) return;
+
+                setIsProcessing(true);
+                try {
+                    let totalBooks = 0;
+                    for (const sourceTag of selectedTags) {
+                        if (sourceTag === targetName) continue;
+                        const booksWithTag = await db.books.where('tags').equals(sourceTag).toArray();
+                        for (const book of booksWithTag) {
+                            book.tags = book.tags.map(t => t === sourceTag ? targetName : t);
+                            book.tags = [...new Set(book.tags)]; // Remove duplicates
+                            await db.books.put(book);
+                        }
+                        totalBooks += booksWithTag.length;
+                    }
+
+                    alert(`Merged ${selectedTags.length} tags into "${targetName}" (${totalBooks} books updated)`);
+                    setShowMergeModal(false);
+                    setSelectedTags([]);
+                    setMergeTarget('');
+                    setMergeNewName('');
+                    await refreshTags();
+                    onTagsUpdated && onTagsUpdated();
+                } finally {
+                    setIsProcessing(false);
+                }
+            };
+
+            // Quick merge duplicates
+            const quickMergeDuplicate = async (tag1, tag2) => {
+                const keepTag = tag1.toLowerCase() === tag1 ? tag1 : tag2.toLowerCase() === tag2 ? tag2 : tag1;
+                const removeTag = keepTag === tag1 ? tag2 : tag1;
+
+                setIsProcessing(true);
+                try {
+                    const booksWithTag = await db.books.where('tags').equals(removeTag).toArray();
+                    for (const book of booksWithTag) {
+                        book.tags = book.tags.map(t => t === removeTag ? keepTag : t);
+                        book.tags = [...new Set(book.tags)];
+                        await db.books.put(book);
+                    }
+                    alert(`Merged "${removeTag}" into "${keepTag}" (${booksWithTag.length} books)`);
+                    await refreshTags();
+                    onTagsUpdated && onTagsUpdated();
+                } finally {
+                    setIsProcessing(false);
+                }
+            };
+
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-overlay" onClick={onClose}>
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        {/* Header */}
+                        <div className="p-4 border-b flex justify-between items-center bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-t-xl">
+                            <h2 className="font-bold text-lg flex items-center gap-2"><Icon name="Tag" size={20} /> Tag Manager</h2>
+                            <button onClick={onClose} className="p-1 hover:bg-white/20 rounded"><Icon name="X" size={20} /></button>
+                        </div>
+
+                        {/* Search & Add */}
+                        <div className="p-3 border-b bg-gray-50 flex gap-2">
+                            <input
+                                className="flex-1 p-2 border rounded-lg text-sm"
+                                placeholder="Search tags..."
+                                value={searchQuery}
+                                onChange={e => setSearchQuery(e.target.value)}
+                            />
+                            <button
+                                onClick={() => setShowAddInput(!showAddInput)}
+                                className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold flex items-center gap-1"
+                            >
+                                <Icon name="Plus" size={16} /> New
+                            </button>
+                        </div>
+
+                        {/* Add Tag Input */}
+                        {showAddInput && (
+                            <div className="p-3 border-b bg-blue-50 flex gap-2">
+                                <input
+                                    className="flex-1 p-2 border rounded-lg text-sm"
+                                    placeholder="Enter new tag name..."
+                                    value={newTagName}
+                                    onChange={e => setNewTagName(e.target.value)}
+                                    onKeyDown={e => e.key === 'Enter' && handleAddTag()}
+                                    autoFocus
+                                />
+                                <button onClick={handleAddTag} className="px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-bold">Add</button>
+                                <button onClick={() => setShowAddInput(false)} className="px-3 py-2 bg-gray-200 rounded-lg text-sm">Cancel</button>
+                            </div>
+                        )}
+
+                        {/* Duplicates Warning */}
+                        {duplicates.length > 0 && (
+                            <div className="p-2 bg-yellow-50 border-b">
+                                <p className="text-xs font-bold text-yellow-800 mb-1">⚠️ Possible Duplicates:</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {duplicates.map((d, i) => (
+                                        <button
+                                            key={i}
+                                            onClick={() => quickMergeDuplicate(d.tag1, d.tag2)}
+                                            className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded border border-yellow-300 hover:bg-yellow-200"
+                                        >
+                                            "{d.tag1}" ↔ "{d.tag2}" [Merge]
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Tags Grid */}
+                        <div className="flex-1 overflow-y-auto p-3">
+                            <div className="flex flex-wrap gap-2">
+                                {filteredTags.map(({ tag, count }) => {
+                                    const color = getTagColor(tag);
+                                    const isSelected = selectedTags.includes(tag);
+                                    return (
+                                        <button
+                                            key={tag}
+                                            onClick={() => toggleTagSelection(tag)}
+                                            className={`
+                                                px-3 py-1.5 rounded-full text-sm font-medium border-2 transition-all
+                                                ${color.bg} ${color.text} ${color.border}
+                                                ${isSelected ? 'ring-2 ring-offset-1 ring-blue-500 scale-105' : ''}
+                                                hover:shadow-md active:scale-95
+                                            `}
+                                        >
+                                            {tag} <span className="opacity-60">({count})</span>
+                                        </button>
+                                    );
+                                })}
+                                {filteredTags.length === 0 && (
+                                    <p className="text-gray-400 text-sm italic">No tags found</p>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Action Bar */}
+                        {selectedTags.length > 0 && (
+                            <div className="p-3 border-t bg-gray-100">
+                                <p className="text-xs text-gray-500 mb-2">Selected: {selectedTags.map(t => {
+                                    const c = getTagColor(t);
+                                    return <span key={t} className={`${c.bg} ${c.text} px-2 py-0.5 rounded-full mr-1`}>{t}</span>;
+                                })}</p>
+                                <div className="flex gap-2">
+                                    {selectedTags.length === 1 && (
+                                        <>
+                                            <button
+                                                onClick={() => { setRenameTag(selectedTags[0]); setRenameValue(selectedTags[0]); }}
+                                                className="flex-1 py-2 bg-blue-100 text-blue-800 rounded-lg text-sm font-bold flex items-center justify-center gap-1"
+                                            >
+                                                <Icon name="Edit3" size={14} /> Rename
+                                            </button>
+                                            <button
+                                                onClick={() => setDeleteTag(selectedTags[0])}
+                                                className="flex-1 py-2 bg-red-100 text-red-800 rounded-lg text-sm font-bold flex items-center justify-center gap-1"
+                                            >
+                                                <Icon name="Trash2" size={14} /> Delete
+                                            </button>
+                                        </>
+                                    )}
+                                    {selectedTags.length >= 2 && (
+                                        <button
+                                            onClick={() => setShowMergeModal(true)}
+                                            className="flex-1 py-2 bg-purple-100 text-purple-800 rounded-lg text-sm font-bold flex items-center justify-center gap-1"
+                                        >
+                                            <Icon name="Merge" size={14} /> Merge {selectedTags.length} Tags
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={() => setSelectedTags([])}
+                                        className="py-2 px-3 bg-gray-200 rounded-lg text-sm"
+                                    >
+                                        Clear
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Rename Modal */}
+                        {renameTag && (
+                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4">
+                                <div className="bg-white rounded-xl p-4 w-full max-w-sm shadow-xl">
+                                    <h3 className="font-bold text-lg mb-3">Rename "{renameTag}"</h3>
+                                    <input
+                                        className="w-full p-3 border rounded-lg mb-3"
+                                        value={renameValue}
+                                        onChange={e => setRenameValue(e.target.value)}
+                                        autoFocus
+                                    />
+                                    <div className="flex gap-2">
+                                        <button onClick={handleRename} disabled={isProcessing} className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-bold">{isProcessing ? 'Renaming...' : 'Rename'}</button>
+                                        <button onClick={() => setRenameTag(null)} className="flex-1 py-2 bg-gray-200 rounded-lg">Cancel</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Delete Modal */}
+                        {deleteTag && (
+                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4">
+                                <div className="bg-white rounded-xl p-4 w-full max-w-sm shadow-xl">
+                                    <h3 className="font-bold text-lg mb-2">Delete "{deleteTag}"?</h3>
+                                    <p className="text-sm text-gray-500 mb-3">This tag is used by {allTags.find(t => t.tag === deleteTag)?.count || 0} books.</p>
+                                    <div className="space-y-2 mb-4">
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input type="radio" checked={deleteAction === 'remove'} onChange={() => setDeleteAction('remove')} />
+                                            Remove tag from all books
+                                        </label>
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input type="radio" checked={deleteAction === 'replaceExisting'} onChange={() => setDeleteAction('replaceExisting')} />
+                                            Replace with existing tag:
+                                        </label>
+                                        {deleteAction === 'replaceExisting' && (
+                                            <select className="w-full p-2 border rounded ml-6" value={replaceTarget} onChange={e => setReplaceTarget(e.target.value)}>
+                                                <option value="">Select tag...</option>
+                                                {allTags.filter(t => t.tag !== deleteTag).map(t => (
+                                                    <option key={t.tag} value={t.tag}>{t.tag} ({t.count})</option>
+                                                ))}
+                                            </select>
+                                        )}
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input type="radio" checked={deleteAction === 'replaceNew'} onChange={() => setDeleteAction('replaceNew')} />
+                                            Replace with new tag:
+                                        </label>
+                                        {deleteAction === 'replaceNew' && (
+                                            <input className="w-full p-2 border rounded ml-6" placeholder="New tag name..." value={replaceTarget} onChange={e => setReplaceTarget(e.target.value)} />
+                                        )}
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={handleDelete} disabled={isProcessing} className="flex-1 py-2 bg-red-600 text-white rounded-lg font-bold">{isProcessing ? 'Deleting...' : 'Delete'}</button>
+                                        <button onClick={() => setDeleteTag(null)} className="flex-1 py-2 bg-gray-200 rounded-lg">Cancel</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Merge Modal */}
+                        {showMergeModal && (
+                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4">
+                                <div className="bg-white rounded-xl p-4 w-full max-w-sm shadow-xl">
+                                    <h3 className="font-bold text-lg mb-2">Merge {selectedTags.length} Tags</h3>
+                                    <p className="text-sm text-gray-500 mb-3">Tags: {selectedTags.join(', ')}</p>
+                                    <div className="space-y-2 mb-4">
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input type="radio" checked={mergeMode === 'existing'} onChange={() => setMergeMode('existing')} />
+                                            Merge into existing tag:
+                                        </label>
+                                        {mergeMode === 'existing' && (
+                                            <select className="w-full p-2 border rounded ml-6" value={mergeTarget} onChange={e => setMergeTarget(e.target.value)}>
+                                                <option value="">Select tag...</option>
+                                                {selectedTags.map(t => (
+                                                    <option key={t} value={t}>{t}</option>
+                                                ))}
+                                            </select>
+                                        )}
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input type="radio" checked={mergeMode === 'new'} onChange={() => setMergeMode('new')} />
+                                            Merge into new tag:
+                                        </label>
+                                        {mergeMode === 'new' && (
+                                            <input className="w-full p-2 border rounded ml-6" placeholder="New tag name..." value={mergeNewName} onChange={e => setMergeNewName(e.target.value)} />
+                                        )}
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={handleMerge} disabled={isProcessing} className="flex-1 py-2 bg-purple-600 text-white rounded-lg font-bold">{isProcessing ? 'Merging...' : 'Merge'}</button>
+                                        <button onClick={() => setShowMergeModal(false)} className="flex-1 py-2 bg-gray-200 rounded-lg">Cancel</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
             );
         };
@@ -2129,18 +2549,18 @@
             // Copy book details to clipboard
             const copyBookDetails = () => {
                 const text = `📚 ${book.title}${book.phonetic && book.phonetic !== book.title ? ` (${book.phonetic})` : ''}
-✍️ ${book.author_name || book.author || 'Unknown'}${book.author_initials ? ` (${book.author_initials})` : ''}
-📖 ISBN: ${book.isbn || 'N/A'}
-📅 Published: ${book.pub_year || '?'} by ${book.publisher || 'Unknown'}
-🌐 Language: ${book.language || book.lang || 'EN'}
-📄 Pages: ${book.page_count || 'N/A'}
-📍 Location: ${book.building || '?'} / ${book.shelf || '?'}
-👤 Owner: ${book.owner || 'N/A'}
-📋 Condition: ${book.condition || 'Good'} | ${book.status === 'avail' ? 'Available' : 'Lent'}
-💰 Value: ${book.currency || ''} ${book.price || 'N/A'}
-🏷️ Tags: ${(book.tags || []).join(', ') || 'None'}
+                                ✍️ ${book.author_name || book.author || 'Unknown'}${book.author_initials ? ` (${book.author_initials})` : ''}
+                                📖 ISBN: ${book.isbn || 'N/A'}
+                                📅 Published: ${book.pub_year || '?'} by ${book.publisher || 'Unknown'}
+                                🌐 Language: ${book.language || book.lang || 'EN'}
+                                📄 Pages: ${book.page_count || 'N/A'}
+                                📍 Location: ${book.building || '?'} / ${book.shelf || '?'}
+                                👤 Owner: ${book.owner || 'N/A'}
+                                📋 Condition: ${book.condition || 'Good'} | ${book.status === 'avail' ? 'Available' : 'Lent'}
+                                💰 Value: ${book.currency || ''} ${book.price || 'N/A'}
+                                🏷️ Tags: ${(book.tags || []).join(', ') || 'None'}
 
-Exported from ShelfLife`;
+                                Exported from ShelfLife`;
                 navigator.clipboard.writeText(text).then(() => {
                     alert('✅ Copied to clipboard!');
                 }).catch(() => {
@@ -2381,7 +2801,8 @@ Exported from ShelfLife`;
             const [lastRestore, setLastRestore] = useState(null);
             const [showWhatsNew, setShowWhatsNew] = useState(false);
             const [showReports, setShowReports] = useState(false);
-            const APP_VERSION = '2.2.0';
+            const [showTagManager, setShowTagManager] = useState(false);
+            const APP_VERSION = '2.3.0';
             const BUILD_DATE = '2025-12-29 18:10';
             const COMMIT_HASH = 'd12d6f2';
 
@@ -2506,7 +2927,7 @@ Exported from ShelfLife`;
                         path: folderInput,
                         directory: targetDir
                     }).catch(e => {
-                        // If default fails, maybe try the root Documents? 
+                        // If default fails, maybe try the root Documents?
                         // But for now, just return empty to show "No backups"
                         return { files: [] };
                     });
@@ -2778,7 +3199,7 @@ Exported from ShelfLife`;
                 const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
 
                 const txtLog = `========================================
-ShelfLife Restore Log
+                                ShelfLife Restore Log
 ========================================
 Date: ${now.toLocaleString()}
 Mode: ${mode.toUpperCase()}
@@ -2929,6 +3350,18 @@ Skipped: ${stats.skipped}
                         )}
                     </div>
 
+                    {/* TAG MANAGER SECTION */}
+                    <div className="bg-white p-4 rounded-xl shadow border border-purple-100">
+                        <h3 className="font-bold mb-3 text-purple-800 flex items-center gap-2"><Icon name="Tag" size={18} /> Tag Manager</h3>
+                        <p className="text-xs text-gray-500 mb-3">Manage all your tags in one place - rename, delete, merge duplicates.</p>
+                        <button
+                            onClick={() => setShowTagManager(true)}
+                            className="w-full py-3 bg-purple-50 text-purple-700 rounded-lg flex items-center justify-center gap-2 text-sm font-bold hover:bg-purple-100 transition"
+                        >
+                            <Icon name="Tag" size={18} /> Open Tag Manager
+                        </button>
+                    </div>
+
                     {/* BACKUP & RESTORE SECTION */}
                     <div className="bg-white p-4 rounded-xl shadow border border-orange-100">
                         <h3 className="font-bold mb-3 text-orange-800">Backup & Restore</h3>
@@ -3025,10 +3458,14 @@ Skipped: ${stats.skipped}
                             </div>
                         </div>
                     </div>
-                    <div className="bg-white p-4 rounded-xl shadow border">
-                        <h3 className="font-bold mb-3">Tag Manager</h3>
-                        <TagManager books={books} onClose={() => { }} />
-                    </div>
+
+                    {/* Tag Manager Modal */}
+                    <TagManagerModal
+                        isOpen={showTagManager}
+                        onClose={() => setShowTagManager(false)}
+                        books={books}
+                        onTagsUpdated={() => { window.location.reload(); }}
+                    />
 
                     {/* DATA HANDLING HUB (MERGE STUDIO) */}
                     <div className="bg-white p-4 rounded-xl shadow border border-purple-200">
