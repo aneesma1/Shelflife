@@ -576,6 +576,11 @@
         // V1 Schema: Original
         db.version(1).stores({ books: "++id, title, phonetic, author, owner, publisher, language, building, shelf, status, date_added, isbn, page_count, condition, currency" });
 
+        // V2: Add tags multi-entry index for Tag Manager
+        db.version(2).stores({
+            books: "++id, title, phonetic, author, owner, publisher, language, building, shelf, status, date_added, isbn, page_count, condition, currency, *tags"
+        });
+
         // V2 Schema (Implied): Split Author
         // We use the same database name to keep it simple, but we handle the data migration in code.
         // On app load, we check and migrate "author" -> "author_name" + "author_initials"
@@ -3601,26 +3606,26 @@ Skipped: ${stats.skipped}
                             </label>
                             <p className="text-[9px] text-gray-500 text-center">Supports all formats: chunked backups, legacy files, single/multiple files</p>
                         </div>
+
                     </div>
-                </div>
 
-                    {/* Tag Manager Modal */ }
-            <TagManagerModal
-                isOpen={showTagManager}
-                onClose={() => setShowTagManager(false)}
-                books={books}
-                onTagsUpdated={() => {
-                    // Slight delay to ensure UI updates before reload
-                    setTimeout(() => window.location.reload(), 100);
-                }}
-            />
+                    {/* Tag Manager Modal */}
+                    <TagManagerModal
+                        isOpen={showTagManager}
+                        onClose={() => setShowTagManager(false)}
+                        books={books}
+                        onTagsUpdated={() => {
+                            // Slight delay to ensure UI updates before reload
+                            setTimeout(() => window.location.reload(), 100);
+                        }}
+                    />
 
-            {/* DATA HANDLING HUB (MERGE STUDIO) */ }
-            <div className="bg-white p-4 rounded-xl shadow border border-purple-200">
-                <h3 className="font-bold mb-3 text-purple-800 flex items-center gap-2"><Icon name="Merge" size={18} /> Merge Studio</h3>
-                <p className="text-xs text-gray-500 mb-3">Merge backup files from multiple devices into a unified master file.</p>
-                <DataHandlingHub />
-            </div>
+                    {/* DATA HANDLING HUB (MERGE STUDIO) */}
+                    <div className="bg-white p-4 rounded-xl shadow border border-purple-200">
+                        <h3 className="font-bold mb-3 text-purple-800 flex items-center gap-2"><Icon name="Merge" size={18} /> Merge Studio</h3>
+                        <p className="text-xs text-gray-500 mb-3">Merge backup files from multiple devices into a unified master file.</p>
+                        <DataHandlingHub />
+                    </div>
                 </div >
             );
         };
