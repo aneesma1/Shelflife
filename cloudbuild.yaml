@@ -15,17 +15,30 @@ steps:
       - 'bash'
       - '-c'
       - |
+        # Exit immediately if a command exits with a non-zero status
+        set -e
         mkdir -p www/libs www/fonts
         cp index.html www/
         cd www/libs
         apt-get update && apt-get install -y curl
-        curl -L -o react.js https://unpkg.com/react@18/umd/react.production.min.js
-        curl -L -o react-dom.js https://unpkg.com/react-dom@18/umd/react-dom.production.min.js
-        curl -L -o babel.min.js https://unpkg.com/@babel/standalone/babel.min.js
-        curl -L -o tailwindcss.js https://cdn.tailwindcss.com
-        curl -L -o dexie.js https://unpkg.com/dexie@3.2.4/dist/dexie.min.js
-        curl -L -o html5-qrcode.min.js https://unpkg.com/html5-qrcode
-        curl -L -o jszip.min.js https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
+        
+        echo "Downloading libraries..."
+        curl -L --fail --retry 3 -o react.js https://unpkg.com/react@18/umd/react.production.min.js
+        curl -L --fail --retry 3 -o react-dom.js https://unpkg.com/react-dom@18/umd/react-dom.production.min.js
+        curl -L --fail --retry 3 -o babel.min.js https://unpkg.com/@babel/standalone/babel.min.js
+        curl -L --fail --retry 3 -o tailwindcss.js https://cdn.tailwindcss.com
+        curl -L --fail --retry 3 -o dexie.js https://unpkg.com/dexie@3.2.4/dist/dexie.min.js
+        curl -L --fail --retry 3 -o html5-qrcode.min.js https://unpkg.com/html5-qrcode
+        curl -L --fail --retry 3 -o jszip.min.js https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
+        
+        # Verify files conform to expectations (size > 0)
+        for f in *.js *.min.js; do
+          if [ ! -s "$f" ]; then
+            echo "Error: Download failed for $f"
+            exit 1
+          fi
+        done
+        echo "All libraries downloaded and verified."
         cd ../fonts
         curl -L -o NotoSans-Regular.woff2 "https://fonts.gstatic.com/s/notosans/v36/o-0NIpQlx3QUlC5A4PNjhjRFSfiM7HBj.woff2"
         curl -L -o NotoSans-Bold.woff2 "https://fonts.gstatic.com/s/notosans/v36/o-0NIpQlx3QUlC5A4PNjFjFZSfiM7HBj.woff2"
