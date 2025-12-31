@@ -190,6 +190,12 @@
 
     <script type="text/babel">
 
+        // DEBUG: Catch any errors during initialization
+        window.onerror = function (msg, url, line, col, error) {
+            alert('APP ERROR: ' + msg + '\nLine: ' + line + '\nCol: ' + col);
+            return false;
+        };
+
         // ==========================================
         // 1. UTILITIES
         // ==========================================
