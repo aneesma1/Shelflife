@@ -20,6 +20,7 @@
     <script src="libs/tailwindcss.js"></script>
     <script src="libs/dexie.js"></script>
     <script src="libs/html5-qrcode.min.js"></script>
+    <script src="libs/jszip.min.js"></script>
 
     <!-- OFFLINE FONTS (Bundled in APK) -->
     <style>
@@ -405,6 +406,141 @@
 
                 let html = `<html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;padding:20px;} .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:20px;} .card{border:1px solid #ddd;padding:10px;text-align:center;border-radius:8px;} img{width:100%;height:150px;object-fit:cover;margin-bottom:10px;border-radius:4px;} .meta{font-size:12px;color:#666;}</style></head><body><h1>${title}</h1><div class="grid">${books.map(b => `<div class="card">${b.front ? `<img src="${b.front}"/>` : ''}<b>${b.title}</b><br><small>${b.author_name || b.author} ${b.author_initials || ''}</small><br><span class="meta">${b.publisher} • ${b.pub_year}</span></div>`).join('')}</div></body></html>`;
                 ExportUtils.download(html, `ShelfLife_Visual_${ExportUtils.getTimestamp()}.html`, "text/html;charset=utf-8", folder, base);
+            },
+
+            // Export all book cover images to a ZIP file
+            // onProgress: (current, total, message) => void
+            imagesZip: async (books, onProgress = () => { }) => {
+                if (!window.JSZip) {
+                    alert("JSZip library not loaded. Cannot export images.");
+                    return { success: false, error: "JSZip not available" };
+                }
+                if (!window.Capacitor) {
+                    alert("Export Images to ZIP requires Android App (Native Filesystem).");
+                    return { success: false, error: "Native FS required" };
+                }
+
+                const { Filesystem } = window.Capacitor.Plugins;
+                const zip = new JSZip();
+                const BATCH_SIZE = 30; // Process 30 images at a time to avoid memory issues
+                const MAX_SIZE_WARNING = 500 * 1024 * 1024; // 500MB warning threshold
+
+                // Collect all images with metadata
+                const allImages = [];
+                const filenameCounts = {}; // Track duplicates
+
+                for (const book of books) {
+                    const safeTitle = (book.title || 'Unknown').replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, '_').slice(0, 50);
+
+                    if (book.front && book.front.startsWith('data:image')) {
+                        allImages.push({ title: safeTitle, type: 'front', data: book.front, bookId: book.id });
+                    }
+                    if (book.back && book.back.startsWith('data:image')) {
+                        allImages.push({ title: safeTitle, type: 'back', data: book.back, bookId: book.id });
+                    }
+                    if (book.spine && book.spine.startsWith('data:image')) {
+                        allImages.push({ title: safeTitle, type: 'spine', data: book.spine, bookId: book.id });
+                    }
+                }
+
+                if (allImages.length === 0) {
+                    alert("No images found in your library.");
+                    return { success: false, error: "No images" };
+                }
+
+                // Estimate total size (base64 is ~33% larger than binary)
+                let estimatedSize = 0;
+                for (const img of allImages) {
+                    estimatedSize += (img.data.length * 0.75); // Approximate binary size
+                }
+
+                if (estimatedSize > MAX_SIZE_WARNING) {
+                    const sizeMB = Math.round(estimatedSize / (1024 * 1024));
+                    const proceed = confirm(`Estimated ZIP size: ${sizeMB}MB. Large files may take a long time and use significant memory. Continue?`);
+                    if (!proceed) return { success: false, error: "User cancelled" };
+                }
+
+                onProgress(0, allImages.length, `Starting export of ${allImages.length} images...`);
+
+                try {
+                    // Process in batches to avoid memory issues
+                    for (let i = 0; i < allImages.length; i += BATCH_SIZE) {
+                        const batch = allImages.slice(i, Math.min(i + BATCH_SIZE, allImages.length));
+
+                        for (let j = 0; j < batch.length; j++) {
+                            const img = batch[j];
+                            const current = i + j + 1;
+
+                            // Generate unique filename
+                            const baseFilename = `${img.title}_${img.type}`;
+                            if (!filenameCounts[baseFilename]) filenameCounts[baseFilename] = 0;
+                            filenameCounts[baseFilename]++;
+
+                            const filename = filenameCounts[baseFilename] > 1
+                                ? `${baseFilename}_${filenameCounts[baseFilename]}.jpg`
+                                : `${baseFilename}.jpg`;
+
+                            // Extract base64 data
+                            const base64Data = img.data.split(',')[1];
+
+                            // Add to ZIP (JSZip handles base64 conversion)
+                            zip.file(filename, base64Data, { base64: true });
+
+                            onProgress(current, allImages.length, `Processing: ${filename}`);
+                        }
+
+                        // Allow UI to update between batches
+                        await new Promise(resolve => requestAnimationFrame(resolve));
+                    }
+
+                    onProgress(allImages.length, allImages.length, "Generating ZIP file...");
+
+                    // Generate ZIP as base64 for Capacitor Filesystem
+                    const zipBlob = await zip.generateAsync({
+                        type: "base64",
+                        compression: "DEFLATE",
+                        compressionOptions: { level: 6 }
+                    }, (metadata) => {
+                        onProgress(allImages.length, allImages.length, `Compressing: ${Math.round(metadata.percent)}%`);
+                    });
+
+                    // Generate filename: DeviceName_Images_YYYY-MM-DD_HH-MM.zip
+                    const deviceName = localStorage.getItem('shelfLife_deviceName') || 'MYPHONE';
+                    const now = new Date();
+                    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
+                    const zipFilename = `${deviceName}_Images_${dateStr}.zip`;
+
+                    onProgress(allImages.length, allImages.length, "Saving to device...");
+
+                    // Save to ShelfLife/Exports
+                    const folder = 'ShelfLife/Exports';
+                    const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
+                    const targetDir = Directory[baseStr] || Directory.Documents;
+
+                    // Ensure folder exists
+                    try { await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true }); } catch (e) { }
+
+                    await Filesystem.writeFile({
+                        path: `${folder}/${zipFilename}`,
+                        data: zipBlob,
+                        directory: targetDir
+                    });
+
+                    const finalSizeMB = Math.round((zipBlob.length * 0.75) / (1024 * 1024));
+                    onProgress(allImages.length, allImages.length, "Complete!");
+
+                    return {
+                        success: true,
+                        filename: zipFilename,
+                        imageCount: allImages.length,
+                        sizeMB: finalSizeMB,
+                        path: `${baseStr}/${folder}/${zipFilename}`
+                    };
+
+                } catch (error) {
+                    console.error("Image ZIP export failed:", error);
+                    return { success: false, error: error.message || "Export failed" };
+                }
             }
         };
 
@@ -2802,6 +2938,7 @@
             const [showWhatsNew, setShowWhatsNew] = useState(false);
             const [showReports, setShowReports] = useState(false);
             const [showTagManager, setShowTagManager] = useState(false);
+            const [imageExportStatus, setImageExportStatus] = useState({ exporting: false, current: 0, total: 0, message: '' });
             const APP_VERSION = '2.3.0';
             const BUILD_DATE = '2025-12-29 18:10';
             const COMMIT_HASH = 'd12d6f2';
@@ -3345,6 +3482,36 @@ Skipped: ${stats.skipped}
                                     <button onClick={() => ExportUtils.htmlText(books, 'Mix', 'Library Inventory')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="List" /> HTML Text Report</button>
                                     <button onClick={() => ExportUtils.htmlVisual(books, 'Mix', 'Visual Catalogue')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Image" /> HTML Visual Catalogue</button>
                                     <button onClick={() => ExportUtils.csv(books, 'Library_Export')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Download" /> Export CSV</button>
+
+                                    {/* Export Images to ZIP */}
+                                    <button
+                                        onClick={async () => {
+                                            if (imageExportStatus.exporting) return;
+                                            setImageExportStatus({ exporting: true, current: 0, total: 0, message: 'Preparing...' });
+                                            const result = await ExportUtils.imagesZip(books, (current, total, message) => {
+                                                setImageExportStatus({ exporting: true, current, total, message });
+                                            });
+                                            setImageExportStatus({ exporting: false, current: 0, total: 0, message: '' });
+                                            if (result.success) {
+                                                const fileList = result.files.map(f => `• ${f.filename} (${f.imageCount} images, ~${f.sizeMB}MB)`).join('\n');
+                                                alert(`✅ Exported ${result.totalImages} images!\n\n${result.totalParts} ZIP file(s):\n${fileList}\n\nSaved to: ${result.folder}`);
+                                            } else if (result.error && result.error !== 'User cancelled') {
+                                                const partialMsg = result.partialFiles?.length ? `\n(Partial: ${result.partialFiles.length} files saved before error)` : '';
+                                                alert(`❌ Export failed: ${result.error}${partialMsg}`);
+                                            }
+                                        }}
+                                        disabled={imageExportStatus.exporting}
+                                        className={`w-full py-3 rounded-lg flex items-center justify-center gap-2 text-sm transition ${imageExportStatus.exporting ? 'bg-green-100 text-green-700' : 'bg-green-50 hover:bg-green-100 text-green-700'}`}
+                                    >
+                                        {imageExportStatus.exporting ? (
+                                            <>
+                                                <span className="animate-pulse">📦</span>
+                                                <span className="text-xs">{imageExportStatus.message} ({imageExportStatus.current}/{imageExportStatus.total})</span>
+                                            </>
+                                        ) : (
+                                            <><Icon name="Image" /> Export Images (ZIP)</>
+                                        )}
+                                    </button>
                                 </div>
                             </div>
                         )}
