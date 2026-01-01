@@ -1080,19 +1080,19 @@
             const [allTags, setAllTags] = useState([]);
             const [selectedTags, setSelectedTags] = useState([]);
             const [searchQuery, setSearchQuery] = useState('');
-            const [showAddInput, setShowAddInput] = useState(false);
-            const [newTagName, setNewTagName] = useState('');
+            const [showDropdown, setShowDropdown] = useState(false);
+            const [maxHeight, setMaxHeight] = useState(200);
             const [renameTag, setRenameTag] = useState(null);
             const [renameValue, setRenameValue] = useState('');
             const [deleteTag, setDeleteTag] = useState(null);
-            const [deleteAction, setDeleteAction] = useState('remove'); // remove | replaceExisting | replaceNew
+            const [deleteAction, setDeleteAction] = useState('remove');
             const [replaceTarget, setReplaceTarget] = useState('');
             const [showMergeModal, setShowMergeModal] = useState(false);
             const [mergeTarget, setMergeTarget] = useState('');
             const [mergeNewName, setMergeNewName] = useState('');
-            const [mergeMode, setMergeMode] = useState('existing'); // existing | new
-            const [duplicates, setDuplicates] = useState([]);
+            const [mergeMode, setMergeMode] = useState('existing');
             const [isProcessing, setIsProcessing] = useState(false);
+            const inputRef = useRef(null);
 
             // Calculate all tags with counts
             const refreshTags = useCallback(async () => {
@@ -1109,44 +1109,69 @@
                     .map(([tag, data]) => ({ tag, ...data }))
                     .sort((a, b) => b.count - a.count);
                 setAllTags(tags);
-
-                // Find duplicates (case-insensitive)
-                const dupes = [];
-                for (let i = 0; i < tags.length; i++) {
-                    for (let j = i + 1; j < tags.length; j++) {
-                        if (tags[i].tag.toLowerCase() === tags[j].tag.toLowerCase() && tags[i].tag !== tags[j].tag) {
-                            dupes.push({ tag1: tags[i].tag, tag2: tags[j].tag });
-                        }
-                    }
-                }
-                setDuplicates(dupes);
             }, []);
 
             useEffect(() => {
-                if (isOpen) refreshTags();
+                if (isOpen) {
+                    refreshTags();
+                    setSearchQuery('');
+                    setSelectedTags([]);
+                }
             }, [isOpen, refreshTags]);
 
-            // Filter tags by search
+            // Keyboard-aware height calculation
+            const calculateMaxHeight = useCallback(() => {
+                if (!inputRef.current) return 200;
+                const rect = inputRef.current.getBoundingClientRect();
+                const viewportHeight = window.visualViewport?.height || window.innerHeight;
+                const estimatedKeyboardHeight = viewportHeight * 0.4;
+                const safeGap = 20;
+                return Math.max(100, Math.min(viewportHeight - rect.bottom - estimatedKeyboardHeight - safeGap, 250));
+            }, []);
+
+            useEffect(() => {
+                const updateHeight = () => setMaxHeight(calculateMaxHeight());
+                updateHeight();
+                window.visualViewport?.addEventListener('resize', updateHeight);
+                return () => window.visualViewport?.removeEventListener('resize', updateHeight);
+            }, [calculateMaxHeight]);
+
+            // Filter tags by search (search-first: show nothing if empty)
             const filteredTags = useMemo(() => {
-                if (!searchQuery.trim()) return allTags;
+                if (!searchQuery.trim()) return [];
                 const q = searchQuery.toLowerCase();
-                return allTags.filter(t => t.tag.toLowerCase().includes(q));
+                return allTags.filter(t => t.tag.toLowerCase().includes(q)).slice(0, 15);
             }, [allTags, searchQuery]);
 
-            // Toggle tag selection
-            const toggleTagSelection = (tag) => {
-                setSelectedTags(prev =>
-                    prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
-                );
+            // Check if search query is a new tag (doesn't exist)
+            const isNewTag = useMemo(() => {
+                if (!searchQuery.trim()) return false;
+                const q = searchQuery.trim().toLowerCase();
+                return !allTags.some(t => t.tag.toLowerCase() === q);
+            }, [allTags, searchQuery]);
+
+            // Toggle tag selection (add as chip)
+            const selectTag = (tag) => {
+                if (!selectedTags.includes(tag)) {
+                    setSelectedTags([...selectedTags, tag]);
+                }
+                setSearchQuery('');
+                setShowDropdown(false);
             };
 
-            // Add new tag (placeholder - only creates when assigned)
-            const handleAddTag = () => {
-                if (!newTagName.trim()) return;
-                // Tags are created when assigned, we just close the input
-                alert(`Tag "${newTagName.trim()}" will be available when you assign it to a book.`);
-                setNewTagName('');
-                setShowAddInput(false);
+            // Remove chip
+            const removeTag = (tag) => {
+                setSelectedTags(selectedTags.filter(t => t !== tag));
+            };
+
+            // Create new tag and add to selection
+            const handleCreateTag = () => {
+                const newTag = searchQuery.trim();
+                if (newTag && !selectedTags.includes(newTag)) {
+                    setSelectedTags([...selectedTags, newTag]);
+                }
+                setSearchQuery('');
+                setShowDropdown(false);
             };
 
             // Rename tag
@@ -1160,14 +1185,8 @@
                         await db.books.put(book);
                     }
                     alert(`Renamed "${renameTag}" → "${renameValue.trim()}" in ${booksWithTag.length} books`);
-
-                    if (onTagsUpdated) {
-                        onTagsUpdated(); // Let parent handle refresh (e.g. reload)
-                    } else {
-                        setRenameTag(null);
-                        setRenameValue('');
-                        await refreshTags();
-                    }
+                    onClose();
+                    if (onTagsUpdated) onTagsUpdated();
                 } finally {
                     setIsProcessing(false);
                 }
@@ -1179,31 +1198,21 @@
                 setIsProcessing(true);
                 try {
                     const booksWithTag = await db.books.where('tags').equals(deleteTag).toArray();
-
                     for (const book of booksWithTag) {
                         if (deleteAction === 'remove') {
                             book.tags = book.tags.filter(t => t !== deleteTag);
                         } else if (deleteAction === 'replaceExisting' && replaceTarget) {
                             book.tags = book.tags.map(t => t === deleteTag ? replaceTarget : t);
-                            // Remove duplicates
                             book.tags = [...new Set(book.tags)];
                         } else if (deleteAction === 'replaceNew' && replaceTarget.trim()) {
                             book.tags = book.tags.map(t => t === deleteTag ? replaceTarget.trim() : t);
                         }
                         await db.books.put(book);
                     }
-
                     const actionText = deleteAction === 'remove' ? 'removed from' : 'replaced in';
                     alert(`"${deleteTag}" ${actionText} ${booksWithTag.length} books`);
-
-                    if (onTagsUpdated) {
-                        onTagsUpdated();
-                    } else {
-                        setDeleteTag(null);
-                        setDeleteAction('remove');
-                        setReplaceTarget('');
-                        await refreshTags();
-                    }
+                    onClose();
+                    if (onTagsUpdated) onTagsUpdated();
                 } finally {
                     setIsProcessing(false);
                 }
@@ -1223,48 +1232,14 @@
                         const booksWithTag = await db.books.where('tags').equals(sourceTag).toArray();
                         for (const book of booksWithTag) {
                             book.tags = book.tags.map(t => t === sourceTag ? targetName : t);
-                            book.tags = [...new Set(book.tags)]; // Remove duplicates
+                            book.tags = [...new Set(book.tags)];
                             await db.books.put(book);
                         }
                         totalBooks += booksWithTag.length;
                     }
-
                     alert(`Merged ${selectedTags.length} tags into "${targetName}" (${totalBooks} books updated)`);
-
-                    if (onTagsUpdated) {
-                        onTagsUpdated();
-                    } else {
-                        setShowMergeModal(false);
-                        setSelectedTags([]);
-                        setMergeTarget('');
-                        setMergeNewName('');
-                        await refreshTags();
-                    }
-                } finally {
-                    setIsProcessing(false);
-                }
-            };
-
-            // Quick merge duplicates
-            const quickMergeDuplicate = async (tag1, tag2) => {
-                const keepTag = tag1.toLowerCase() === tag1 ? tag1 : tag2.toLowerCase() === tag2 ? tag2 : tag1;
-                const removeTag = keepTag === tag1 ? tag2 : tag1;
-
-                setIsProcessing(true);
-                try {
-                    const booksWithTag = await db.books.where('tags').equals(removeTag).toArray();
-                    for (const book of booksWithTag) {
-                        book.tags = book.tags.map(t => t === removeTag ? keepTag : t);
-                        book.tags = [...new Set(book.tags)];
-                        await db.books.put(book);
-                    }
-                    alert(`Merged "${removeTag}" into "${keepTag}" (${booksWithTag.length} books)`);
-
-                    if (onTagsUpdated) {
-                        onTagsUpdated();
-                    } else {
-                        await refreshTags();
-                    }
+                    onClose();
+                    if (onTagsUpdated) onTagsUpdated();
                 } finally {
                     setIsProcessing(false);
                 }
@@ -1274,135 +1249,133 @@
 
             return (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-overlay" onClick={onClose}>
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
                         {/* Header */}
                         <div className="p-4 border-b flex justify-between items-center bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-t-xl">
                             <h2 className="font-bold text-lg flex items-center gap-2"><Icon name="Tag" size={20} /> Tag Manager</h2>
                             <button onClick={onClose} className="p-1 hover:bg-white/20 rounded"><Icon name="X" size={20} /></button>
                         </div>
 
-                        {/* Search & Add */}
-                        <div className="p-3 border-b bg-gray-50 flex gap-2">
+                        {/* Search Input with Dropdown */}
+                        <div className="p-3 border-b bg-gray-50 relative">
                             <input
-                                className="flex-1 p-2 border rounded-lg text-sm"
-                                placeholder="Search tags..."
+                                ref={inputRef}
+                                className="w-full p-3 border rounded-lg text-sm"
+                                placeholder="Search tags or type new..."
                                 value={searchQuery}
-                                onChange={e => setSearchQuery(e.target.value)}
+                                onChange={e => { setSearchQuery(e.target.value); setShowDropdown(true); }}
+                                onFocus={() => setShowDropdown(true)}
                             />
-                            <button
-                                onClick={() => setShowAddInput(!showAddInput)}
-                                className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold flex items-center gap-1"
-                            >
-                                <Icon name="Plus" size={16} /> New
-                            </button>
+                            {/* Dropdown */}
+                            {showDropdown && searchQuery.trim() && (
+                                <div
+                                    className="absolute left-3 right-3 bg-white border rounded-lg shadow-lg z-10 overflow-y-auto"
+                                    style={{ maxHeight: maxHeight, top: '100%' }}
+                                >
+                                    {filteredTags.map(({ tag, count }) => {
+                                        const color = getTagColor(tag);
+                                        const isSelected = selectedTags.includes(tag);
+                                        return (
+                                            <div
+                                                key={tag}
+                                                onClick={() => !isSelected && selectTag(tag)}
+                                                className={`px-3 py-2 flex justify-between items-center cursor-pointer hover:bg-gray-100 
+                                                    ${isSelected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                            >
+                                                <span className={`px-2 py-0.5 rounded-full text-sm ${color.bg} ${color.text}`}>
+                                                    {tag}
+                                                </span>
+                                                <span className="text-xs text-gray-400">{count} books</span>
+                                            </div>
+                                        );
+                                    })}
+                                    {filteredTags.length === 0 && !isNewTag && (
+                                        <div className="px-3 py-2 text-gray-400 text-sm italic">No matching tags</div>
+                                    )}
+                                    {isNewTag && (
+                                        <div
+                                            onClick={handleCreateTag}
+                                            className="px-3 py-2 flex items-center gap-2 cursor-pointer hover:bg-green-50 text-green-700 border-t"
+                                        >
+                                            <Icon name="Plus" size={16} />
+                                            <span>Create "<strong>{searchQuery.trim()}</strong>"</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
-                        {/* Add Tag Input */}
-                        {showAddInput && (
-                            <div className="p-3 border-b bg-blue-50 flex gap-2">
-                                <input
-                                    className="flex-1 p-2 border rounded-lg text-sm"
-                                    placeholder="Enter new tag name..."
-                                    value={newTagName}
-                                    onChange={e => setNewTagName(e.target.value)}
-                                    onKeyDown={e => e.key === 'Enter' && handleAddTag()}
-                                    autoFocus
-                                />
-                                <button onClick={handleAddTag} className="px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-bold">Add</button>
-                                <button onClick={() => setShowAddInput(false)} className="px-3 py-2 bg-gray-200 rounded-lg text-sm">Cancel</button>
-                            </div>
-                        )}
-
-                        {/* Duplicates Warning */}
-                        {duplicates.length > 0 && (
-                            <div className="p-2 bg-yellow-50 border-b">
-                                <p className="text-xs font-bold text-yellow-800 mb-1">⚠️ Possible Duplicates:</p>
-                                <div className="flex flex-wrap gap-2">
-                                    {duplicates.map((d, i) => (
-                                        <button
-                                            key={i}
-                                            onClick={() => quickMergeDuplicate(d.tag1, d.tag2)}
-                                            className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded border border-yellow-300 hover:bg-yellow-200"
-                                        >
-                                            "{d.tag1}" ↔ "{d.tag2}" [Merge]
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Tags Grid */}
-                        <div className="flex-1 overflow-y-auto p-3">
-                            <div className="flex flex-wrap gap-2">
-                                {filteredTags.map(({ tag, count }) => {
+                        {/* Selected Tags (Chips) */}
+                        <div className="p-3 border-b flex flex-wrap gap-2 min-h-[60px]">
+                            {selectedTags.length === 0 ? (
+                                <p className="text-gray-400 text-sm italic">Type to search and select tags...</p>
+                            ) : (
+                                selectedTags.map(tag => {
                                     const color = getTagColor(tag);
-                                    const isSelected = selectedTags.includes(tag);
+                                    const tagData = allTags.find(t => t.tag === tag);
+                                    const isNew = !tagData;
                                     return (
-                                        <button
+                                        <span
                                             key={tag}
-                                            onClick={() => toggleTagSelection(tag)}
-                                            className={`
-                                                px-3 py-1.5 rounded-full text-sm font-medium border-2 transition-all
-                                                ${color.bg} ${color.text} ${color.border}
-                                                ${isSelected ? 'ring-2 ring-offset-1 ring-blue-500 scale-105' : ''}
-                                                hover:shadow-md active:scale-95
-                                            `}
+                                            className={`px-3 py-1.5 rounded-full text-sm font-medium flex items-center gap-2 border-2
+                                                ${isNew ? 'bg-green-100 text-green-800 border-green-300' : `${color.bg} ${color.text} ${color.border}`}`}
                                         >
-                                            {tag} <span className="opacity-60">({count})</span>
-                                        </button>
+                                            {tag} {tagData && <span className="opacity-60">({tagData.count})</span>}
+                                            {isNew && <span className="text-[10px] bg-green-500 text-white px-1 rounded">NEW</span>}
+                                            <button onClick={() => removeTag(tag)} className="hover:text-red-600 ml-1">×</button>
+                                        </span>
                                     );
-                                })}
-                                {filteredTags.length === 0 && (
-                                    <p className="text-gray-400 text-sm italic">No tags found</p>
-                                )}
-                            </div>
+                                })
+                            )}
                         </div>
 
-                        {/* Action Bar */}
-                        {selectedTags.length > 0 && (
-                            <div className="p-3 border-t bg-gray-100">
-                                <p className="text-xs text-gray-500 mb-2">Selected: {selectedTags.map(t => {
-                                    const c = getTagColor(t);
-                                    return <span key={t} className={`${c.bg} ${c.text} px-2 py-0.5 rounded-full mr-1`}>{t}</span>;
-                                })}</p>
-                                <div className="flex gap-2">
-                                    {selectedTags.length === 1 && (
-                                        <>
-                                            <button
-                                                onClick={() => { setRenameTag(selectedTags[0]); setRenameValue(selectedTags[0]); }}
-                                                className="flex-1 py-2 bg-blue-100 text-blue-800 rounded-lg text-sm font-bold flex items-center justify-center gap-1"
-                                            >
-                                                <Icon name="Edit3" size={14} /> Rename
-                                            </button>
-                                            <button
-                                                onClick={() => setDeleteTag(selectedTags[0])}
-                                                className="flex-1 py-2 bg-red-100 text-red-800 rounded-lg text-sm font-bold flex items-center justify-center gap-1"
-                                            >
-                                                <Icon name="Trash2" size={14} /> Delete
-                                            </button>
-                                        </>
-                                    )}
-                                    {selectedTags.length >= 2 && (
-                                        <button
-                                            onClick={() => setShowMergeModal(true)}
-                                            className="flex-1 py-2 bg-purple-100 text-purple-800 rounded-lg text-sm font-bold flex items-center justify-center gap-1"
-                                        >
-                                            <Icon name="Merge" size={14} /> Merge {selectedTags.length} Tags
-                                        </button>
-                                    )}
+                        {/* Action Buttons */}
+                        <div className="p-3 bg-gray-100 flex flex-wrap gap-2">
+                            {selectedTags.length === 1 && allTags.find(t => t.tag === selectedTags[0]) && (
+                                <>
                                     <button
-                                        onClick={() => setSelectedTags([])}
-                                        className="py-2 px-3 bg-gray-200 rounded-lg text-sm"
+                                        onClick={() => { setRenameTag(selectedTags[0]); setRenameValue(selectedTags[0]); }}
+                                        className="flex-1 py-2 bg-blue-100 text-blue-800 rounded-lg text-sm font-bold flex items-center justify-center gap-1"
                                     >
-                                        Clear
+                                        <Icon name="Edit3" size={14} /> Rename
                                     </button>
-                                </div>
-                            </div>
-                        )}
+                                    <button
+                                        onClick={() => setDeleteTag(selectedTags[0])}
+                                        className="flex-1 py-2 bg-red-100 text-red-800 rounded-lg text-sm font-bold flex items-center justify-center gap-1"
+                                    >
+                                        <Icon name="Trash2" size={14} /> Delete
+                                    </button>
+                                </>
+                            )}
+                            {selectedTags.length >= 2 && (
+                                <button
+                                    onClick={() => setShowMergeModal(true)}
+                                    className="flex-1 py-2 bg-purple-100 text-purple-800 rounded-lg text-sm font-bold flex items-center justify-center gap-1"
+                                >
+                                    <Icon name="Merge" size={14} /> Merge {selectedTags.length} Tags
+                                </button>
+                            )}
+                            {selectedTags.length > 0 && (
+                                <button
+                                    onClick={() => setSelectedTags([])}
+                                    className="py-2 px-4 bg-gray-200 rounded-lg text-sm"
+                                >
+                                    Clear
+                                </button>
+                            )}
+                            {selectedTags.length === 0 && (
+                                <p className="text-xs text-gray-400 italic w-full text-center">Select tags to see actions</p>
+                            )}
+                        </div>
+
+                        {/* Quick Stats */}
+                        <div className="p-2 bg-gray-50 border-t text-center">
+                            <p className="text-xs text-gray-400">{allTags.length} tags in library</p>
+                        </div>
 
                         {/* Rename Modal */}
                         {renameTag && (
-                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4">
+                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4 z-20">
                                 <div className="bg-white rounded-xl p-4 w-full max-w-sm shadow-xl">
                                     <h3 className="font-bold text-lg mb-3">Rename "{renameTag}"</h3>
                                     <input
@@ -1421,7 +1394,7 @@
 
                         {/* Delete Modal */}
                         {deleteTag && (
-                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4">
+                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4 z-20">
                                 <div className="bg-white rounded-xl p-4 w-full max-w-sm shadow-xl">
                                     <h3 className="font-bold text-lg mb-2">Delete "{deleteTag}"?</h3>
                                     <p className="text-sm text-gray-500 mb-3">This tag is used by {allTags.find(t => t.tag === deleteTag)?.count || 0} books.</p>
@@ -1460,19 +1433,19 @@
 
                         {/* Merge Modal */}
                         {showMergeModal && (
-                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4">
+                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4 z-20">
                                 <div className="bg-white rounded-xl p-4 w-full max-w-sm shadow-xl">
                                     <h3 className="font-bold text-lg mb-2">Merge {selectedTags.length} Tags</h3>
                                     <p className="text-sm text-gray-500 mb-3">Tags: {selectedTags.join(', ')}</p>
                                     <div className="space-y-2 mb-4">
                                         <label className="flex items-center gap-2 text-sm">
                                             <input type="radio" checked={mergeMode === 'existing'} onChange={() => setMergeMode('existing')} />
-                                            Merge into existing tag:
+                                            Merge into one of these:
                                         </label>
                                         {mergeMode === 'existing' && (
                                             <select className="w-full p-2 border rounded ml-6" value={mergeTarget} onChange={e => setMergeTarget(e.target.value)}>
                                                 <option value="">Select tag...</option>
-                                                {selectedTags.map(t => (
+                                                {selectedTags.filter(t => allTags.find(at => at.tag === t)).map(t => (
                                                     <option key={t} value={t}>{t}</option>
                                                 ))}
                                             </select>
@@ -2295,8 +2268,12 @@
                             <select className="p-2 border rounded bg-gray-50 text-sm font-bold uppercase w-1/3" value={pendingField} onChange={e => setPendingField(e.target.value)}>
                                 <option value="publisher">Publisher</option><option value="author_name">Author</option><option value="owner">Owner</option><option value="tags">Tags</option><option value="language">Language</option><option value="building">Location</option><option value="pub_year">Year</option><option value="condition">Condition</option>
                             </select>
-                            <input list="slicer-suggestions" className="flex-1 p-2 border rounded" placeholder="Select value..." value={pendingValue} onChange={e => setPendingValue(e.target.value)} />
-                            <datalist id="slicer-suggestions">{suggestions.map(s => <option key={s} value={s} />)}</datalist>
+                            <AutocompleteInput
+                                value={pendingValue}
+                                onChange={setPendingValue}
+                                suggestions={suggestions}
+                                placeholder="Select or type value..."
+                            />
                             <button onClick={addFilter} className="bg-blue-600 text-white px-4 rounded font-bold">+</button>
                         </div>
                         <div className="flex flex-wrap gap-2 min-h-[30px]">
@@ -2942,7 +2919,7 @@
             const [showReports, setShowReports] = useState(false);
             const [showTagManager, setShowTagManager] = useState(false);
             const [imageExportStatus, setImageExportStatus] = useState({ exporting: false, current: 0, total: 0, message: '' });
-            const APP_VERSION = '2.3.0';
+            const APP_VERSION = '2.4.0';
             const BUILD_DATE = '2025-12-29 18:10';
             const COMMIT_HASH = 'd12d6f2';
 
@@ -3434,6 +3411,41 @@ Skipped: ${stats.skipped}
                 }
             };
 
+            // Sync to folder for recovery
+            const syncToFolder = async () => {
+                try {
+                    const { Filesystem, Directory } = window.Capacitor.Plugins;
+                    const { Encoding } = window.Capacitor;
+                    const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
+                    const targetDir = Directory[baseStr] || Directory.Documents;
+
+                    const allBooks = await db.books.toArray();
+                    const syncData = {
+                        _shelflife_sync: true,
+                        timestamp: new Date().toISOString(),
+                        version: APP_VERSION,
+                        device: localStorage.getItem('shelfLife_deviceName') || 'Unknown',
+                        count: allBooks.length,
+                        books: allBooks
+                    };
+
+                    const folder = 'ShelfLife/sync_root_folder';
+                    await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true });
+
+                    const filename = `shelflife_sync_${new Date().toISOString().split('T')[0]}.json`;
+                    await Filesystem.writeFile({
+                        path: `${folder}/${filename}`,
+                        data: JSON.stringify(syncData),
+                        directory: targetDir,
+                        encoding: Encoding.UTF8
+                    });
+
+                    alert(`✅ Sync Complete!\n\n${allBooks.length} books saved to:\n📂 ${folder}/${filename}\n\nUse this file to restore your library if needed.`);
+                } catch (err) {
+                    alert(`Sync Error: ${err.message}\nCheck app permissions.`);
+                }
+            };
+
             // --- SETTINGS COMPONENT FIX ---
             const [tempDeviceName, setTempDeviceName] = useState(localStorage.getItem('shelfLife_deviceName') || 'MYPHONE');
 
@@ -3605,6 +3617,14 @@ Skipped: ${stats.skipped}
                                 <input type="file" onChange={handleSmartRestore} accept=".json" multiple className="hidden" />
                             </label>
                             <p className="text-[9px] text-gray-500 text-center">Supports all formats: chunked backups, legacy files, single/multiple files</p>
+                        </div>
+
+                        <h4 className="font-bold text-xs uppercase text-blue-800 mb-2 mt-4">Sync</h4>
+                        <div className="space-y-2 mb-4">
+                            <button onClick={syncToFolder} className="w-full py-3 bg-blue-600 text-white rounded text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-700">
+                                <Icon name="RefreshCw" /> Sync to Folder
+                            </button>
+                            <p className="text-[9px] text-gray-500 text-center">Exports full database to ShelfLife/sync_root_folder/ for easy recovery.</p>
                         </div>
 
                     </div>
