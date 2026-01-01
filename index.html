@@ -946,12 +946,12 @@
                 setSelectedIndex(-1);
             }, [input, allTags, value]);
 
-            // Add tag
+            // Add tag (with Title Case formatting)
             const addTag = (tag) => {
-                const trimmed = tag.trim();
-                if (!trimmed || value.includes(trimmed)) return;
+                const formatted = toTitleCase(tag);
+                if (!formatted || value.some(v => v.toLowerCase() === formatted.toLowerCase())) return;
 
-                const newTags = [...value, trimmed];
+                const newTags = [...value, formatted];
                 onChange(newTags);
                 setInput('');
                 setShowDropdown(false);
@@ -1076,6 +1076,11 @@
             return TAG_COLORS[hash % TAG_COLORS.length];
         };
 
+        // Title Case formatter for consistent tag naming
+        const toTitleCase = (str) => {
+            return str.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+        };
+
         const TagManagerModal = ({ isOpen, onClose, books, onTagsUpdated }) => {
             const [allTags, setAllTags] = useState([]);
             const [selectedTags, setSelectedTags] = useState([]);
@@ -1092,6 +1097,7 @@
             const [mergeNewName, setMergeNewName] = useState('');
             const [mergeMode, setMergeMode] = useState('existing');
             const [isProcessing, setIsProcessing] = useState(false);
+            const [showBrowseAll, setShowBrowseAll] = useState(false);
             const inputRef = useRef(null);
 
             // Calculate all tags with counts
@@ -1164,10 +1170,10 @@
                 setSelectedTags(selectedTags.filter(t => t !== tag));
             };
 
-            // Create new tag and add to selection
+            // Create new tag and add to selection (with Title Case)
             const handleCreateTag = () => {
-                const newTag = searchQuery.trim();
-                if (newTag && !selectedTags.includes(newTag)) {
+                const newTag = toTitleCase(searchQuery);
+                if (newTag && !selectedTags.some(t => t.toLowerCase() === newTag.toLowerCase())) {
                     setSelectedTags([...selectedTags, newTag]);
                 }
                 setSearchQuery('');
@@ -1368,10 +1374,51 @@
                             )}
                         </div>
 
-                        {/* Quick Stats */}
-                        <div className="p-2 bg-gray-50 border-t text-center">
+                        {/* Quick Stats + Browse All */}
+                        <div className="p-2 bg-gray-50 border-t flex justify-between items-center">
                             <p className="text-xs text-gray-400">{allTags.length} tags in library</p>
+                            <button
+                                onClick={() => setShowBrowseAll(true)}
+                                className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold hover:bg-blue-200"
+                            >
+                                Browse All
+                            </button>
                         </div>
+
+                        {/* Browse All Tags Modal */}
+                        {showBrowseAll && (
+                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4 z-20">
+                                <div className="bg-white rounded-xl w-full max-w-md max-h-[70vh] flex flex-col shadow-xl">
+                                    <div className="p-3 border-b flex justify-between items-center bg-blue-500 text-white rounded-t-xl">
+                                        <h3 className="font-bold">📋 All Tags ({allTags.length})</h3>
+                                        <button onClick={() => setShowBrowseAll(false)} className="hover:bg-white/20 p-1 rounded"><Icon name="X" size={18} /></button>
+                                    </div>
+                                    <div className="flex-1 overflow-y-auto p-3">
+                                        <div className="flex flex-wrap gap-2">
+                                            {allTags.map(({ tag, count }) => {
+                                                const color = getTagColor(tag);
+                                                const isSelected = selectedTags.includes(tag);
+                                                return (
+                                                    <button
+                                                        key={tag}
+                                                        onClick={() => { selectTag(tag); setShowBrowseAll(false); }}
+                                                        className={`px-3 py-1.5 rounded-full text-sm font-medium border-2 transition-all
+                                                            ${color.bg} ${color.text} ${color.border}
+                                                            ${isSelected ? 'ring-2 ring-offset-1 ring-blue-500' : ''}
+                                                            hover:shadow-md active:scale-95`}
+                                                    >
+                                                        {tag} <span className="opacity-60">({count})</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                    <div className="p-2 border-t text-center">
+                                        <button onClick={() => setShowBrowseAll(false)} className="text-sm text-gray-500">Close</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Rename Modal */}
                         {renameTag && (
@@ -2919,7 +2966,7 @@
             const [showReports, setShowReports] = useState(false);
             const [showTagManager, setShowTagManager] = useState(false);
             const [imageExportStatus, setImageExportStatus] = useState({ exporting: false, current: 0, total: 0, message: '' });
-            const APP_VERSION = '2.4.0';
+            const APP_VERSION = '2.4.1';
             const BUILD_DATE = '2025-12-29 18:10';
             const COMMIT_HASH = 'd12d6f2';
 
@@ -3411,28 +3458,51 @@ Skipped: ${stats.skipped}
                 }
             };
 
-            // Sync to folder for recovery
+            // Sync to folder for recovery (enhanced: delete old, show comparison)
             const syncToFolder = async () => {
                 try {
                     const { Filesystem, Directory } = window.Capacitor.Plugins;
                     const { Encoding } = window.Capacitor;
                     const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
                     const targetDir = Directory[baseStr] || Directory.Documents;
+                    const folder = 'ShelfLife/sync_root_folder';
+
+                    await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true });
+
+                    // Read existing sync files for comparison
+                    let previousCount = 0;
+                    let oldFiles = [];
+                    try {
+                        const dirContents = await Filesystem.readdir({ path: folder, directory: targetDir });
+                        oldFiles = dirContents.files.filter(f => f.name && f.name.startsWith('shelflife_sync_') && f.name.endsWith('.json'));
+
+                        // Read the most recent sync file to get previous count
+                        if (oldFiles.length > 0) {
+                            const latestFile = oldFiles.sort((a, b) => (b.name || '').localeCompare(a.name || ''))[0];
+                            try {
+                                const prevData = await Filesystem.readFile({
+                                    path: `${folder}/${latestFile.name}`,
+                                    directory: targetDir,
+                                    encoding: Encoding.UTF8
+                                });
+                                const parsed = JSON.parse(prevData.data);
+                                previousCount = parsed.count || 0;
+                            } catch (e) { /* ignore read errors */ }
+                        }
+                    } catch (e) { /* folder may not exist yet */ }
 
                     const allBooks = await db.books.toArray();
+                    const deviceName = localStorage.getItem('shelfLife_deviceName') || 'Unknown';
                     const syncData = {
                         _shelflife_sync: true,
                         timestamp: new Date().toISOString(),
                         version: APP_VERSION,
-                        device: localStorage.getItem('shelfLife_deviceName') || 'Unknown',
+                        device: deviceName,
                         count: allBooks.length,
                         books: allBooks
                     };
 
-                    const folder = 'ShelfLife/sync_root_folder';
-                    await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true });
-
-                    const filename = `shelflife_sync_${new Date().toISOString().split('T')[0]}.json`;
+                    const filename = `shelflife_sync_${deviceName}_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
                     await Filesystem.writeFile({
                         path: `${folder}/${filename}`,
                         data: JSON.stringify(syncData),
@@ -3440,7 +3510,20 @@ Skipped: ${stats.skipped}
                         encoding: Encoding.UTF8
                     });
 
-                    alert(`✅ Sync Complete!\n\n${allBooks.length} books saved to:\n📂 ${folder}/${filename}\n\nUse this file to restore your library if needed.`);
+                    // Delete old sync files
+                    for (const oldFile of oldFiles) {
+                        try {
+                            await Filesystem.deleteFile({ path: `${folder}/${oldFile.name}`, directory: targetDir });
+                        } catch (e) { /* ignore delete errors */ }
+                    }
+
+                    // Show comparison
+                    const diff = allBooks.length - previousCount;
+                    const diffText = previousCount === 0 ? 'First sync!' :
+                        (diff > 0 ? `+${diff} new books since last sync` :
+                            diff < 0 ? `${diff} books (some deleted)` : 'No change in book count');
+
+                    alert(`✅ Sync Complete!\n\n📚 ${allBooks.length} books\n📊 ${diffText}\n📱 Device: ${deviceName}\n📂 ${folder}/${filename}\n\n${oldFiles.length > 0 ? `🗑️ Deleted ${oldFiles.length} old sync file(s)` : ''}`);
                 } catch (err) {
                     alert(`Sync Error: ${err.message}\nCheck app permissions.`);
                 }
