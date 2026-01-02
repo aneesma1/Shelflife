@@ -1805,6 +1805,43 @@
                 }
             };
 
+            // Capture page image using Capacitor Camera
+            const capturePageImage = async (source = 'prompt') => {
+                try {
+                    const { Camera } = window.Capacitor?.Plugins || {};
+                    if (Camera) {
+                        const image = await Camera.getPhoto({
+                            quality: 80,
+                            allowEditing: false,
+                            resultType: 'dataUrl',
+                            source: source,
+                            width: 800,
+                            height: 1200,
+                            correctOrientation: true
+                        });
+                        const compressed = await ImageUtils.compressDataUrl(image.dataUrl);
+                        setForm(f => ({ ...f, pages: [...(f.pages || []), compressed] }));
+                    } else {
+                        // Fallback for web
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = 'image/*';
+                        input.onchange = async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                                const res = await ImageUtils.process(file);
+                                setForm(f => ({ ...f, pages: [...(f.pages || []), res] }));
+                            }
+                        };
+                        input.click();
+                    }
+                } catch (err) {
+                    if (err.message && !err.message.includes('cancelled')) {
+                        alert('Camera error: ' + err.message);
+                    }
+                }
+            };
+
 
 
             const handleBarcode = async (isbn) => {
@@ -2011,17 +2048,15 @@
                                 </div>
                             ))}
                             {/* Add Page - Camera */}
-                            <label className="flex-shrink-0 w-28 h-40 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center overflow-hidden relative cursor-pointer hover:bg-gray-50">
+                            <button onClick={() => capturePageImage('camera')} className="flex-shrink-0 w-28 h-40 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center overflow-hidden cursor-pointer hover:bg-gray-50">
                                 <Icon name="Camera" className="text-gray-400" />
                                 <span className="text-[10px] font-bold text-gray-400 mt-1">Camera</span>
-                                <input type="file" className="hidden" onChange={handlePageAdd} capture="environment" accept="image/*" />
-                            </label>
+                            </button>
                             {/* Add Page - Gallery */}
-                            <label className="flex-shrink-0 w-28 h-40 bg-blue-50 border-2 border-dashed border-blue-200 rounded-lg flex flex-col items-center justify-center overflow-hidden relative cursor-pointer hover:bg-blue-100">
+                            <button onClick={() => capturePageImage('photos')} className="flex-shrink-0 w-28 h-40 bg-blue-50 border-2 border-dashed border-blue-200 rounded-lg flex flex-col items-center justify-center overflow-hidden cursor-pointer hover:bg-blue-100">
                                 <Icon name="Image" className="text-blue-400" />
                                 <span className="text-[10px] font-bold text-blue-400 mt-1">Gallery</span>
-                                <input type="file" className="hidden" onChange={handlePageAdd} accept="image/*" />
-                            </label>
+                            </button>
                         </div>
 
                         {/* META DATA */}
