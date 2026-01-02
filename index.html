@@ -3461,8 +3461,8 @@ Skipped: ${stats.skipped}
             // Sync to folder for recovery (enhanced: delete old, show comparison)
             const syncToFolder = async () => {
                 try {
-                    const { Filesystem, Directory } = window.Capacitor.Plugins;
-                    const { Encoding } = window.Capacitor;
+                    const { Filesystem } = window.Capacitor.Plugins;
+                    // Use global Directory and Encoding constants (defined at top of file)
                     const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
                     const targetDir = Directory[baseStr] || Directory.Documents;
                     const folder = 'ShelfLife/sync_root_folder';
@@ -4309,7 +4309,7 @@ OUTPUT: ${masterName}
                         // Request Permissions
                         (async () => {
                             try {
-                                const { Filesystem, Directory } = window.Capacitor.Plugins;
+                                const { Filesystem } = window.Capacitor.Plugins;
                                 await Filesystem.readdir({ path: 'Documents', directory: Directory.External }).catch(() => { });
                             } catch (e) { console.log("Perms check silent fail", e); }
                         })();
