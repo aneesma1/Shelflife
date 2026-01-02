@@ -1518,13 +1518,29 @@
         };
 
         // AUTOCOMPLETE INPUT (For Author, Building, Owner, Condition)
-        const AutocompleteInput = ({ label, value = '', onChange, allBooks = [], field, placeholder = '' }) => {
+        // Supports two modes:
+        // 1. allBooks + field: extracts suggestions from book data
+        // 2. suggestions: direct array of suggestions (for SlicerSearch)
+        const AutocompleteInput = ({ label, value = '', onChange, allBooks = [], field, placeholder = '', suggestions: directSuggestions }) => {
             const [showDropdown, setShowDropdown] = useState(false);
-            const [suggestions, setSuggestions] = useState([]);
+            const [filteredSuggestions, setFilteredSuggestions] = useState([]);
             const [selectedIndex, setSelectedIndex] = useState(-1);
             const [maxHeight, setMaxHeight] = useState(150);
             const inputRef = useRef(null);
             const dropdownRef = useRef(null);
+
+            // Handle onChange - accept either event or direct value
+            const handleChange = (val) => {
+                if (typeof onChange === 'function') {
+                    // Check if onChange expects event or direct value
+                    if (onChange.length === 1) {
+                        // If it accepts a single arg, try direct value first
+                        onChange(typeof val === 'string' ? val : val?.target?.value || val);
+                    } else {
+                        onChange({ target: { value: val } });
+                    }
+                }
+            };
 
             // Calculate dropdown height based on viewport
             const calculateMaxHeight = useCallback(() => {
@@ -1544,8 +1560,11 @@
                 return () => window.visualViewport?.removeEventListener('resize', updateHeight);
             }, [calculateMaxHeight]);
 
-            // Extract unique values for this field from all books
+            // Extract unique values for this field from all books (if not using directSuggestions)
             const allValues = useMemo(() => {
+                if (directSuggestions && directSuggestions.length > 0) {
+                    return directSuggestions;
+                }
                 const valueSet = new Set();
                 allBooks.forEach(book => {
                     const fieldValue = book[field];
@@ -1554,28 +1573,28 @@
                     }
                 });
                 return Array.from(valueSet).sort();
-            }, [allBooks, field]);
+            }, [allBooks, field, directSuggestions]);
 
             // Filter suggestions based on input
             useEffect(() => {
                 if (!value || value.length < 1) {
-                    setSuggestions([]);
+                    setFilteredSuggestions([]);
                     setShowDropdown(false);
                     return;
                 }
 
                 const filtered = allValues.filter(val =>
-                    val.toLowerCase().includes(value.toLowerCase()) &&
-                    val.toLowerCase() !== value.toLowerCase()
+                    String(val).toLowerCase().includes(String(value).toLowerCase()) &&
+                    String(val).toLowerCase() !== String(value).toLowerCase()
                 );
-                setSuggestions(filtered.slice(0, 8));
+                setFilteredSuggestions(filtered.slice(0, 8));
                 setShowDropdown(filtered.length > 0);
                 setSelectedIndex(-1);
             }, [value, allValues]);
 
             // Select suggestion
             const selectSuggestion = (suggestion) => {
-                onChange({ target: { value: suggestion } });
+                handleChange(suggestion);
                 setShowDropdown(false);
                 setSelectedIndex(-1);
             };
@@ -1587,14 +1606,14 @@
                 if (e.key === 'ArrowDown') {
                     e.preventDefault();
                     setSelectedIndex(prev =>
-                        prev < suggestions.length - 1 ? prev + 1 : prev
+                        prev < filteredSuggestions.length - 1 ? prev + 1 : prev
                     );
                 } else if (e.key === 'ArrowUp') {
                     e.preventDefault();
                     setSelectedIndex(prev => prev > 0 ? prev - 1 : -1);
                 } else if (e.key === 'Enter' && selectedIndex >= 0) {
                     e.preventDefault();
-                    selectSuggestion(suggestions[selectedIndex]);
+                    selectSuggestion(filteredSuggestions[selectedIndex]);
                 } else if (e.key === 'Escape') {
                     setShowDropdown(false);
                     setSelectedIndex(-1);
@@ -1613,24 +1632,24 @@
             }, []);
 
             return (
-                <div className="relative" ref={dropdownRef}>
-                    <label className="text-xs text-gray-500 font-bold">{label}</label>
+                <div className="relative flex-1" ref={dropdownRef}>
+                    {label && <label className="text-xs text-gray-500 font-bold">{label}</label>}
                     <input
                         ref={inputRef}
                         type="text"
                         className="w-full p-3 border rounded-lg"
                         placeholder={placeholder}
                         value={value}
-                        onChange={onChange}
+                        onChange={(e) => handleChange(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        onFocus={() => value && setShowDropdown(suggestions.length > 0)}
+                        onFocus={() => value && setShowDropdown(filteredSuggestions.length > 0)}
                     />
 
                     {/* Autocomplete Dropdown */}
-                    {showDropdown && suggestions.length > 0 && (
+                    {showDropdown && filteredSuggestions.length > 0 && (
                         <div className="absolute z-50 w-full mt-1 bg-white border rounded-lg shadow-lg overflow-y-auto"
                             style={{ maxHeight: `${maxHeight}px` }}>
-                            {suggestions.map((suggestion, index) => (
+                            {filteredSuggestions.map((suggestion, index) => (
                                 <div
                                     key={index}
                                     className={`px-3 py-2 cursor-pointer transition ${index === selectedIndex ? 'bg-blue-100' : 'hover:bg-gray-100'
