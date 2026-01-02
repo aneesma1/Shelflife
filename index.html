@@ -2966,7 +2966,7 @@
             const [showReports, setShowReports] = useState(false);
             const [showTagManager, setShowTagManager] = useState(false);
             const [imageExportStatus, setImageExportStatus] = useState({ exporting: false, current: 0, total: 0, message: '' });
-            const APP_VERSION = '2.4.1';
+            const APP_VERSION = '2.4.2';
             const BUILD_DATE = '2025-12-29 18:10';
             const COMMIT_HASH = 'd12d6f2';
 
@@ -3707,7 +3707,7 @@ Skipped: ${stats.skipped}
                             <button onClick={syncToFolder} className="w-full py-3 bg-blue-600 text-white rounded text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-700">
                                 <Icon name="RefreshCw" /> Sync to Folder
                             </button>
-                            <p className="text-[9px] text-gray-500 text-center">Exports full database to ShelfLife/sync_root_folder/ for easy recovery.</p>
+                            <p className="text-[9px] text-gray-500 text-center">Exports full database to ShelfLife/sync_root_folder/.<br />💡 <em>Tip: Use "Restore Backup" to recover from sync files.</em></p>
                         </div>
 
                     </div>
@@ -3782,10 +3782,19 @@ Skipped: ${stats.skipped}
                         }
                     }
 
-                    setFiles(scannedFiles);
-                    setSelectedFiles(scannedFiles.map((_, i) => i)); // Select all by default
-                    if (scannedFiles.length > 0) setStep('preview');
-                    else alert('No valid JSON files found in selection.');
+                    // Append to existing files (allows multi-instance picking from different folders)
+                    const existingNames = new Set(files.map(f => f.name));
+                    const newFiles = scannedFiles.filter(f => !existingNames.has(f.name)); // Skip duplicates by name
+
+                    if (newFiles.length === 0 && scannedFiles.length > 0) {
+                        alert('These files are already added.');
+                    } else {
+                        setFiles(prev => [...prev, ...newFiles]);
+                        // Select all including new files
+                        setSelectedFiles(prev => [...prev, ...newFiles.map((_, i) => files.length + i)]);
+                        if (files.length + newFiles.length > 0) setStep('preview');
+                    }
+                    if (scannedFiles.length === 0) alert('No valid JSON files found in selection.');
                 } catch (err) {
                     alert('File Pick Error: ' + err.message);
                 } finally {
@@ -3843,25 +3852,8 @@ Skipped: ${stats.skipped}
                                 masterMap.set(key, book);
                             }
                         }
-
-                        // Move source file to work_files
-                        try {
-                            const srcContent = await Filesystem.readFile({
-                                path: `${mergePath}/${file.name}`,
-                                directory: targetDir,
-                                encoding: Encoding.UTF8
-                            });
-                            await Filesystem.writeFile({
-                                path: `${workFolder}/${file.name}`,
-                                directory: targetDir,
-                                data: srcContent.data,
-                                encoding: Encoding.UTF8
-                            });
-                            await Filesystem.deleteFile({
-                                path: `${mergePath}/${file.name}`,
-                                directory: targetDir
-                            });
-                        } catch (e) { console.warn("Move failed:", e); }
+                        // Note: Files picked via browser file picker cannot be moved/deleted 
+                        // as they're not accessible via Capacitor Filesystem API
                     }
 
                     const allBooks = [...masterMap.values()];
@@ -3995,7 +3987,7 @@ OUTPUT: ${masterName}
                                 ))}
                             </div>
 
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 flex-wrap">
                                 <button
                                     onClick={() => setSelectedFiles(files.map((_, i) => i))}
                                     className="text-xs px-2 py-1 border rounded"
@@ -4004,6 +3996,14 @@ OUTPUT: ${masterName}
                                     onClick={() => setSelectedFiles([])}
                                     className="text-xs px-2 py-1 border rounded"
                                 >None</button>
+                                <label className="text-xs px-2 py-1 border rounded bg-purple-50 text-purple-700 cursor-pointer hover:bg-purple-100">
+                                    + Add More
+                                    <input type="file" accept=".json" multiple onChange={handleFilePick} className="hidden" />
+                                </label>
+                                <button
+                                    onClick={() => { setFiles([]); setSelectedFiles([]); setStep('scan'); }}
+                                    className="text-xs px-2 py-1 border rounded bg-red-50 text-red-600 hover:bg-red-100"
+                                >Clear All</button>
                             </div>
 
                             <div className="flex gap-2 mt-2">
