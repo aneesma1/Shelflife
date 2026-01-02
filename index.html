@@ -1704,12 +1704,12 @@
 
                 const startScanning = async () => {
                     try {
-                        // Try Capacitor MLKit first
-                        const { BarcodeScanner: CapBarcodeScanner } = window.Capacitor?.Plugins || {};
+                        // Try Capacitor MLKit first - plugin is named "BarcodeScanning"
+                        const { BarcodeScanning } = window.Capacitor?.Plugins || {};
 
-                        if (CapBarcodeScanner) {
+                        if (BarcodeScanning) {
                             // Check/request permission
-                            const permResult = await CapBarcodeScanner.requestPermissions();
+                            const permResult = await BarcodeScanning.requestPermissions();
                             if (permResult.camera !== 'granted') {
                                 setError('Camera permission denied');
                                 return;
@@ -1717,8 +1717,8 @@
 
                             // Start native scanner
                             setScanning(true);
-                            const result = await CapBarcodeScanner.scan({
-                                formats: ['EAN_13', 'EAN_8', 'UPC_A', 'UPC_E', 'ISBN'],
+                            const result = await BarcodeScanning.scan({
+                                formats: ['EAN_13', 'EAN_8', 'UPC_A', 'UPC_E'],
                             });
 
                             setScanning(false);
@@ -1742,9 +1742,9 @@
 
                 return () => {
                     // Cleanup for Capacitor scanner if needed
-                    const { BarcodeScanner: CapBarcodeScanner } = window.Capacitor?.Plugins || {};
-                    if (CapBarcodeScanner && CapBarcodeScanner.stopScan) {
-                        try { CapBarcodeScanner.stopScan(); } catch (e) { }
+                    const { BarcodeScanning } = window.Capacitor?.Plugins || {};
+                    if (BarcodeScanning && BarcodeScanning.stopScan) {
+                        try { BarcodeScanning.stopScan(); } catch (e) { }
                     }
                 };
             }, []);
@@ -1945,8 +1945,13 @@
                 setScanMode(false);
                 const exists = await db.books.where('isbn').equals(isbn).first();
                 if (exists) {
-                    alert("This book already exists in your library!");
-                    if (onBarcodeFound) onBarcodeFound(exists);
+                    // Offer to scan again instead of just closing
+                    const scanAgain = confirm("This book already exists in your library!\n\nScan another barcode?");
+                    if (scanAgain) {
+                        setScanMode(true);
+                    } else if (onBarcodeFound) {
+                        onBarcodeFound(exists);
+                    }
                     return;
                 }
 
@@ -3683,7 +3688,15 @@ Skipped: ${stats.skipped}
                     const targetDir = Directory[baseStr] || Directory.Documents;
                     const folder = 'ShelfLife/sync_root_folder';
 
-                    await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true });
+                    // Create folder (ignore error if already exists)
+                    try {
+                        await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true });
+                    } catch (mkdirErr) {
+                        // Ignore "directory exists" errors - this is expected
+                        if (!mkdirErr.message?.includes('exist')) {
+                            throw mkdirErr;
+                        }
+                    }
 
                     // Read existing sync files for comparison
                     let previousCount = 0;
