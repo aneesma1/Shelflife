@@ -1832,19 +1832,27 @@
                 }
             }, [form.title]);
 
-            // Capture image using Capacitor Camera (replaces unreliable HTML file input)
-            const captureImage = async (field, source = 'prompt') => {
+            // Capture image using Capacitor Camera (replaces unreliable HTML file input)            // Capture image using Capacitor Camera
+            const captureImage = async (field, sourceType = 'Prompt') => {
                 try {
                     setForm(prev => ({ ...prev, [field]: 'loading' }));
 
-                    const { Camera } = window.Capacitor?.Plugins || {};
+                    const { Camera, CameraSource, CameraResultType } = window.Capacitor?.Plugins || {};
                     if (Camera) {
+                        // Map source type to CameraSource enum or use direct value
+                        const sourceValue = CameraSource ?
+                            (sourceType === 'Camera' ? CameraSource.Camera :
+                                sourceType === 'Photos' ? CameraSource.Photos :
+                                    CameraSource.Prompt) : sourceType;
+
+                        const resultType = CameraResultType ? CameraResultType.DataUrl : 'dataUrl';
+
                         // Use Capacitor Camera plugin
                         const image = await Camera.getPhoto({
                             quality: 80,
                             allowEditing: false,
-                            resultType: 'dataUrl',
-                            source: source,  // 'camera', 'photos', or 'prompt'
+                            resultType: resultType,
+                            source: sourceValue,
                             width: 800,
                             height: 1200,
                             correctOrientation: true
@@ -1903,15 +1911,23 @@
             };
 
             // Capture page image using Capacitor Camera
-            const capturePageImage = async (source = 'prompt') => {
+            const capturePageImage = async (sourceType = 'Prompt') => {
                 try {
-                    const { Camera } = window.Capacitor?.Plugins || {};
+                    const { Camera, CameraSource, CameraResultType } = window.Capacitor?.Plugins || {};
                     if (Camera) {
+                        // Map source type to CameraSource enum
+                        const sourceValue = CameraSource ?
+                            (sourceType === 'Camera' ? CameraSource.Camera :
+                                sourceType === 'Photos' ? CameraSource.Photos :
+                                    CameraSource.Prompt) : sourceType;
+
+                        const resultType = CameraResultType ? CameraResultType.DataUrl : 'dataUrl';
+
                         const image = await Camera.getPhoto({
                             quality: 80,
                             allowEditing: false,
-                            resultType: 'dataUrl',
-                            source: source,
+                            resultType: resultType,
+                            source: sourceValue,
                             width: 800,
                             height: 1200,
                             correctOrientation: true
@@ -1945,13 +1961,9 @@
                 setScanMode(false);
                 const exists = await db.books.where('isbn').equals(isbn).first();
                 if (exists) {
-                    // Offer to scan again instead of just closing
-                    const scanAgain = confirm("This book already exists in your library!\n\nScan another barcode?");
-                    if (scanAgain) {
-                        setScanMode(true);
-                    } else if (onBarcodeFound) {
-                        onBarcodeFound(exists);
-                    }
+                    // Just alert - don't call onBarcodeFound as it hides the scanner button
+                    alert("This book already exists in your library!");
+                    // Return to clean Add Book form with scanner button visible
                     return;
                 }
 
@@ -2113,11 +2125,8 @@
                                     </div>
                                 ) : form.front ? <img src={form.front} className="w-full h-full object-cover" /> : <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400"><Icon name="Maximize" /><span className="text-[10px]">Front</span></div>}
                                 <div className="absolute bottom-0 left-0 right-0 flex bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => captureImage('front', 'camera')} className="flex-1 p-2 text-white text-center hover:bg-black/30" title="Camera">
+                                    <button onClick={() => captureImage('front', 'Prompt')} className="flex-1 p-2 text-white text-center hover:bg-black/30" title="Add Photo">
                                         <Icon name="Camera" size={14} />
-                                    </button>
-                                    <button onClick={() => captureImage('front', 'photos')} className="flex-1 p-2 text-white text-center hover:bg-black/30" title="Gallery">
-                                        <Icon name="Image" size={14} />
                                     </button>
                                 </div>
                             </div>
@@ -2131,11 +2140,8 @@
                                     </div>
                                 ) : form.rear ? <img src={form.rear} className="w-full h-full object-cover" /> : <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400"><Icon name="Maximize" /><span className="text-[10px]">Rear</span></div>}
                                 <div className="absolute bottom-0 left-0 right-0 flex bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => captureImage('rear', 'camera')} className="flex-1 p-2 text-white text-center hover:bg-black/30" title="Camera">
+                                    <button onClick={() => captureImage('rear', 'Prompt')} className="flex-1 p-2 text-white text-center hover:bg-black/30" title="Add Photo">
                                         <Icon name="Camera" size={14} />
-                                    </button>
-                                    <button onClick={() => captureImage('rear', 'photos')} className="flex-1 p-2 text-white text-center hover:bg-black/30" title="Gallery">
-                                        <Icon name="Image" size={14} />
                                     </button>
                                 </div>
                             </div>
@@ -2149,15 +2155,10 @@
                                     <button onClick={() => setForm(f => ({ ...f, pages: f.pages.filter((_, idx) => idx !== i) }))} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1"><Icon name="X" size={12} /></button>
                                 </div>
                             ))}
-                            {/* Add Page - Camera */}
-                            <button onClick={() => capturePageImage('camera')} className="flex-shrink-0 w-28 h-40 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center overflow-hidden cursor-pointer hover:bg-gray-50">
-                                <Icon name="Camera" className="text-gray-400" />
-                                <span className="text-[10px] font-bold text-gray-400 mt-1">Camera</span>
-                            </button>
-                            {/* Add Page - Gallery */}
-                            <button onClick={() => capturePageImage('photos')} className="flex-shrink-0 w-28 h-40 bg-blue-50 border-2 border-dashed border-blue-200 rounded-lg flex flex-col items-center justify-center overflow-hidden cursor-pointer hover:bg-blue-100">
-                                <Icon name="Image" className="text-blue-400" />
-                                <span className="text-[10px] font-bold text-blue-400 mt-1">Gallery</span>
+                            {/* Add Page */}
+                            <button onClick={() => capturePageImage('Prompt')} className="flex-shrink-0 w-28 h-40 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center overflow-hidden cursor-pointer hover:bg-gray-50">
+                                <Icon name="Plus" className="text-gray-400" />
+                                <span className="text-[10px] font-bold text-gray-400 mt-1">Add Page</span>
                             </button>
                         </div>
 
