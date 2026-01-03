@@ -1704,12 +1704,21 @@
 
                 const startScanning = async () => {
                     try {
-                        // Try Capacitor MLKit first - plugin is named "BarcodeScanning"
-                        const { BarcodeScanning } = window.Capacitor?.Plugins || {};
+                        const plugins = window.Capacitor?.Plugins || {};
 
-                        if (BarcodeScanning) {
+                        // DEBUG: Log all available Capacitor plugins to console
+                        console.log('Available Capacitor Plugins:', Object.keys(plugins));
+
+                        // Try multiple possible plugin names (MLKit barcode scanner might register differently)
+                        const Scanner = plugins.BarcodeScanner || plugins.BarcodeScanning || plugins.MlkitBarcodeScanning || plugins.CapacitorMlkitBarcodeScanning;
+
+                        console.log('Found barcode scanner plugin:', Scanner ? 'Yes' : 'No (using web fallback)');
+
+                        if (Scanner) {
                             // Check/request permission
-                            const permResult = await BarcodeScanning.requestPermissions();
+                            const permResult = await Scanner.requestPermissions();
+                            console.log('Permission result:', permResult);
+
                             if (permResult.camera !== 'granted') {
                                 setError('Camera permission denied');
                                 return;
@@ -1717,9 +1726,11 @@
 
                             // Start native scanner
                             setScanning(true);
-                            const result = await BarcodeScanning.scan({
+                            const result = await Scanner.scan({
                                 formats: ['EAN_13', 'EAN_8', 'UPC_A', 'UPC_E'],
                             });
+
+                            console.log('Scan result:', result);
 
                             setScanning(false);
                             if (result.barcodes && result.barcodes.length > 0) {
@@ -1728,7 +1739,8 @@
                                 onClose();
                             }
                         } else {
-                            // Fall back to web scanner
+                            // No native plugin found - fall back to web scanner
+                            console.log('Using web fallback (Html5QrcodeScanner)');
                             setUseWebFallback(true);
                         }
                     } catch (err) {
@@ -1742,9 +1754,10 @@
 
                 return () => {
                     // Cleanup for Capacitor scanner if needed
-                    const { BarcodeScanning } = window.Capacitor?.Plugins || {};
-                    if (BarcodeScanning && BarcodeScanning.stopScan) {
-                        try { BarcodeScanning.stopScan(); } catch (e) { }
+                    const plugins = window.Capacitor?.Plugins || {};
+                    const Scanner = plugins.BarcodeScanner || plugins.BarcodeScanning || plugins.MlkitBarcodeScanning || plugins.CapacitorMlkitBarcodeScanning;
+                    if (Scanner && Scanner.stopScan) {
+                        try { Scanner.stopScan(); } catch (e) { }
                     }
                 };
             }, []);
