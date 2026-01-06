@@ -1719,28 +1719,40 @@
                         console.log('Found barcode scanner plugin:', Scanner ? 'Yes' : 'No (using web fallback)');
 
                         if (Scanner) {
-                            // Check/request permission
-                            const permResult = await Scanner.requestPermissions();
-                            console.log('Permission result:', permResult);
+                            try {
+                                // Step 1: Request permission
+                                alert('DEBUG Step 1: Requesting camera permission...');
+                                const permResult = await Scanner.requestPermissions();
+                                alert(`DEBUG Step 2: Permission result: ${JSON.stringify(permResult)}`);
+                                console.log('Permission result:', permResult);
 
-                            if (permResult.camera !== 'granted') {
-                                setError('Camera permission denied');
-                                return;
-                            }
+                                if (permResult.camera !== 'granted') {
+                                    alert('DEBUG: Permission denied!');
+                                    setError('Camera permission denied');
+                                    return;
+                                }
 
-                            // Start native scanner
-                            setScanning(true);
-                            const result = await Scanner.scan({
-                                formats: ['EAN_13', 'EAN_8', 'UPC_A', 'UPC_E'],
-                            });
+                                // Step 3: Start scanning
+                                alert('DEBUG Step 3: Starting native scanner...');
+                                setScanning(true);
+                                const result = await Scanner.scan({
+                                    formats: ['EAN_13', 'EAN_8', 'UPC_A', 'UPC_E'],
+                                });
 
-                            console.log('Scan result:', result);
+                                alert(`DEBUG Step 4: Scan complete! Result: ${JSON.stringify(result)}`);
+                                console.log('Scan result:', result);
 
-                            setScanning(false);
-                            if (result.barcodes && result.barcodes.length > 0) {
-                                onDetected(result.barcodes[0].rawValue);
-                            } else {
-                                onClose();
+                                setScanning(false);
+                                if (result.barcodes && result.barcodes.length > 0) {
+                                    onDetected(result.barcodes[0].rawValue);
+                                } else {
+                                    onClose();
+                                }
+                            } catch (innerErr) {
+                                // Show exactly what error occurred inside Scanner block
+                                alert(`DEBUG ERROR inside Scanner:\n\n${innerErr.message || innerErr}`);
+                                console.error('Scanner inner error:', innerErr);
+                                setUseWebFallback(true);
                             }
                         } else {
                             // No native plugin found - fall back to web scanner
@@ -1748,6 +1760,7 @@
                             setUseWebFallback(true);
                         }
                     } catch (err) {
+                        alert(`DEBUG OUTER ERROR:\n\n${err.message || err}`);
                         console.error('Barcode scan error:', err);
                         // On error, try web fallback
                         setUseWebFallback(true);
