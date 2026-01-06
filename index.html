@@ -1714,32 +1714,49 @@
                         const Scanner = plugins.BarcodeScanner || plugins.BarcodeScanning || plugins.MlkitBarcodeScanning || plugins.CapacitorMlkitBarcodeScanning;
 
                         // VISIBLE DEBUG: Show alert with plugin info (REMOVE AFTER DEBUGGING)
-                        alert(`DEBUG - Capacitor Plugins Found:\n\n${pluginNames.join(', ') || 'NONE'}\n\nBarcode Scanner: ${Scanner ? 'FOUND ✓' : 'NOT FOUND ✗'}`);
+                        // alert(`DEBUG - Capacitor Plugins Found:\n\n${pluginNames.join(', ') || 'NONE'}\n\nBarcode Scanner: ${Scanner ? 'FOUND ✓' : 'NOT FOUND ✗'}`);
 
                         console.log('Found barcode scanner plugin:', Scanner ? 'Yes' : 'No (using web fallback)');
 
                         if (Scanner) {
                             try {
-                                // Step 1: Request permission
-                                alert('DEBUG Step 1: Requesting camera permission...');
+                                // Step 1: Check if Google Barcode Scanner Module is available
+                                const { available } = await Scanner.isGoogleBarcodeScannerModuleAvailable();
+
+                                if (!available) {
+                                    // Module not installed - need to install it first
+                                    alert('Installing Google Barcode Scanner... This is a one-time download.');
+
+                                    // Install the module (downloads from Google Play Services)
+                                    await Scanner.installGoogleBarcodeScannerModule();
+
+                                    // Wait a moment for installation to complete
+                                    await new Promise(resolve => setTimeout(resolve, 2000));
+
+                                    // Check again
+                                    const recheck = await Scanner.isGoogleBarcodeScannerModuleAvailable();
+                                    if (!recheck.available) {
+                                        alert('Module installation in progress. Please try again in a few seconds.');
+                                        setUseWebFallback(true);
+                                        return;
+                                    }
+                                }
+
+                                // Step 2: Request permission
                                 const permResult = await Scanner.requestPermissions();
-                                alert(`DEBUG Step 2: Permission result: ${JSON.stringify(permResult)}`);
                                 console.log('Permission result:', permResult);
 
                                 if (permResult.camera !== 'granted') {
-                                    alert('DEBUG: Permission denied!');
                                     setError('Camera permission denied');
                                     return;
                                 }
 
-                                // Step 3: Start scanning
-                                alert('DEBUG Step 3: Starting native scanner...');
+                                // Step 3: Start native scanner
                                 setScanning(true);
                                 const result = await Scanner.scan({
                                     formats: ['EAN_13', 'EAN_8', 'UPC_A', 'UPC_E'],
                                 });
 
-                                alert(`DEBUG Step 4: Scan complete! Result: ${JSON.stringify(result)}`);
                                 console.log('Scan result:', result);
 
                                 setScanning(false);
@@ -1749,9 +1766,8 @@
                                     onClose();
                                 }
                             } catch (innerErr) {
-                                // Show exactly what error occurred inside Scanner block
-                                alert(`DEBUG ERROR inside Scanner:\n\n${innerErr.message || innerErr}`);
                                 console.error('Scanner inner error:', innerErr);
+                                // Fall back to web scanner on any error
                                 setUseWebFallback(true);
                             }
                         } else {
@@ -1760,7 +1776,7 @@
                             setUseWebFallback(true);
                         }
                     } catch (err) {
-                        alert(`DEBUG OUTER ERROR:\n\n${err.message || err}`);
+                        // alert(`DEBUG OUTER ERROR:\n\n${err.message || err}`);
                         console.error('Barcode scan error:', err);
                         // On error, try web fallback
                         setUseWebFallback(true);
