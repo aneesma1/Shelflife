@@ -1705,12 +1705,16 @@
                 const startScanning = async () => {
                     try {
                         const plugins = window.Capacitor?.Plugins || {};
+                        const pluginNames = Object.keys(plugins);
 
                         // DEBUG: Log all available Capacitor plugins to console
-                        console.log('Available Capacitor Plugins:', Object.keys(plugins));
+                        console.log('Available Capacitor Plugins:', pluginNames);
 
                         // Try multiple possible plugin names (MLKit barcode scanner might register differently)
                         const Scanner = plugins.BarcodeScanner || plugins.BarcodeScanning || plugins.MlkitBarcodeScanning || plugins.CapacitorMlkitBarcodeScanning;
+
+                        // VISIBLE DEBUG: Show alert with plugin info (REMOVE AFTER DEBUGGING)
+                        alert(`DEBUG - Capacitor Plugins Found:\n\n${pluginNames.join(', ') || 'NONE'}\n\nBarcode Scanner: ${Scanner ? 'FOUND ✓' : 'NOT FOUND ✗'}`);
 
                         console.log('Found barcode scanner plugin:', Scanner ? 'Yes' : 'No (using web fallback)');
 
