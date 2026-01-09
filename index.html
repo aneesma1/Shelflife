@@ -344,6 +344,34 @@
             UTF16: 'utf16'
         };
 
+        // Platform Detection Utility
+        const PlatformUtils = {
+            // Check if running in Tauri (Windows/Desktop)
+            isTauri: () => !!(window.__TAURI__ || window.__TAURI_IPC__),
+
+            // Check if running in Capacitor (Android/iOS)
+            isCapacitor: () => !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()),
+
+            // Check if running in browser (PWA/Web)
+            isBrowser: () => !PlatformUtils.isTauri() && !PlatformUtils.isCapacitor(),
+
+            // Get platform name
+            getPlatform: () => {
+                if (PlatformUtils.isTauri()) return 'windows';
+                if (PlatformUtils.isCapacitor()) return 'android';
+                return 'web';
+            },
+
+            // Check if camera is available (not on Windows desktop)
+            hasCameraCapture: () => PlatformUtils.isCapacitor(),
+
+            // Check if native barcode scanner is available
+            hasNativeBarcodeScanner: () => PlatformUtils.isCapacitor(),
+
+            // Check if speech recognition is available
+            hasSpeechRecognition: () => PlatformUtils.isCapacitor()
+        };
+
         const ExportUtils = {
             getTimestamp: () => {
                 const now = new Date();
@@ -1861,6 +1889,223 @@
             );
         };
 
+        // WINDOWS ISBN INPUT - Alternative to barcode scanner for desktop
+        // Supports: Type ISBN, Paste text, Browse image, Paste screenshot, Drag & drop
+        const WindowsISBNInput = ({ onDetected, onClose }) => {
+            const [isbnInput, setIsbnInput] = useState('');
+            const [status, setStatus] = useState('');
+            const [isDragging, setIsDragging] = useState(false);
+            const fileInputRef = useRef(null);
+            const dropZoneRef = useRef(null);
+
+            // Decode barcode from image data
+            const decodeBarcodeFromImage = async (imageData) => {
+                setStatus('Decoding barcode...');
+                try {
+                    if (!window.Html5Qrcode) {
+                        throw new Error('Barcode decoder not available');
+                    }
+                    const html5QrCode = new window.Html5Qrcode("temp-reader");
+
+                    // Create a temporary div for the scanner
+                    const tempDiv = document.createElement('div');
+                    tempDiv.id = 'temp-reader';
+                    tempDiv.style.display = 'none';
+                    document.body.appendChild(tempDiv);
+
+                    try {
+                        // If imageData is a File/Blob
+                        if (imageData instanceof File || imageData instanceof Blob) {
+                            const result = await html5QrCode.scanFile(imageData, true);
+                            document.body.removeChild(tempDiv);
+                            return result;
+                        }
+                        // If imageData is a data URL string
+                        if (typeof imageData === 'string' && imageData.startsWith('data:')) {
+                            // Convert data URL to Blob
+                            const response = await fetch(imageData);
+                            const blob = await response.blob();
+                            const file = new File([blob], 'barcode.png', { type: 'image/png' });
+                            const result = await html5QrCode.scanFile(file, true);
+                            document.body.removeChild(tempDiv);
+                            return result;
+                        }
+                    } catch (scanErr) {
+                        document.body.removeChild(tempDiv);
+                        throw scanErr;
+                    }
+                } catch (err) {
+                    console.error('Barcode decode error:', err);
+                    throw new Error('Could not decode barcode from image');
+                }
+            };
+
+            // Handle ISBN text submit
+            const handleSubmit = () => {
+                const cleaned = isbnInput.replace(/[-\s]/g, '').trim();
+                if (cleaned.match(/^[0-9]{10,13}$/)) {
+                    onDetected(cleaned);
+                } else {
+                    setStatus('Invalid ISBN. Enter 10 or 13 digits.');
+                }
+            };
+
+            // Handle file selection
+            const handleFileSelect = async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                try {
+                    const result = await decodeBarcodeFromImage(file);
+                    setStatus('Barcode found: ' + result);
+                    onDetected(result);
+                } catch (err) {
+                    setStatus('Failed to decode barcode: ' + err.message);
+                }
+            };
+
+            // Handle paste event (text or image)
+            useEffect(() => {
+                const handlePaste = async (e) => {
+                    const items = e.clipboardData?.items;
+                    if (!items) return;
+
+                    for (const item of items) {
+                        // Image paste (from Snipping Tool)
+                        if (item.type.startsWith('image/')) {
+                            e.preventDefault();
+                            const blob = item.getAsFile();
+                            if (blob) {
+                                try {
+                                    const result = await decodeBarcodeFromImage(blob);
+                                    setStatus('Barcode found: ' + result);
+                                    onDetected(result);
+                                } catch (err) {
+                                    setStatus('Failed to decode barcode from screenshot');
+                                }
+                            }
+                            return;
+                        }
+                        // Text paste
+                        if (item.type === 'text/plain') {
+                            item.getAsString((text) => {
+                                const cleaned = text.replace(/[-\s]/g, '').trim();
+                                if (cleaned.match(/^[0-9]{10,13}$/)) {
+                                    setIsbnInput(cleaned);
+                                    setStatus('ISBN pasted');
+                                }
+                            });
+                        }
+                    }
+                };
+
+                document.addEventListener('paste', handlePaste);
+                return () => document.removeEventListener('paste', handlePaste);
+            }, [onDetected]);
+
+            // Handle drag and drop
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                setIsDragging(true);
+            };
+
+            const handleDragLeave = () => {
+                setIsDragging(false);
+            };
+
+            const handleDrop = async (e) => {
+                e.preventDefault();
+                setIsDragging(false);
+
+                const file = e.dataTransfer?.files?.[0];
+                if (file && file.type.startsWith('image/')) {
+                    try {
+                        const result = await decodeBarcodeFromImage(file);
+                        setStatus('Barcode found: ' + result);
+                        onDetected(result);
+                    } catch (err) {
+                        setStatus('Failed to decode barcode from image');
+                    }
+                }
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center modal-overlay">
+                    <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4 shadow-2xl">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold">📖 Add Book via ISBN</h3>
+                            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full">
+                                <Icon name="X" size={20} />
+                            </button>
+                        </div>
+
+                        {/* Option 1: Type/Paste ISBN */}
+                        <div className="mb-4">
+                            <label className="text-xs text-gray-500 font-bold block mb-1">Type or Paste ISBN</label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={isbnInput}
+                                    onChange={(e) => setIsbnInput(e.target.value)}
+                                    placeholder="978-0-123456-78-9"
+                                    className="flex-1 p-3 border rounded-lg text-lg font-mono"
+                                    onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
+                                />
+                                <button
+                                    onClick={handleSubmit}
+                                    className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700"
+                                >
+                                    🔍
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="text-center text-gray-400 text-sm mb-4">— OR —</div>
+
+                        {/* Option 2: Browse/Paste/Drop Image */}
+                        <div
+                            ref={dropZoneRef}
+                            onDragOver={handleDragOver}
+                            onDragLeave={handleDragLeave}
+                            onDrop={handleDrop}
+                            className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
+                                }`}
+                        >
+                            <Icon name="Image" size={32} className="mx-auto text-gray-400 mb-2" />
+                            <p className="text-sm text-gray-600 mb-3">
+                                Drop barcode image here<br />
+                                or <span className="text-blue-600">paste screenshot</span> (Ctrl+V)
+                            </p>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*"
+                                onChange={handleFileSelect}
+                                className="hidden"
+                            />
+                            <button
+                                onClick={() => fileInputRef.current?.click()}
+                                className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm hover:bg-gray-200"
+                            >
+                                📁 Browse Image...
+                            </button>
+                        </div>
+
+                        {/* Status message */}
+                        {status && (
+                            <p className={`mt-3 text-sm text-center ${status.includes('found') ? 'text-green-600' : 'text-orange-600'
+                                }`}>
+                                {status}
+                            </p>
+                        )}
+
+                        <p className="text-xs text-gray-400 text-center mt-4">
+                            Tip: Use Snipping Tool (Win+Shift+S) to capture barcode, then paste here
+                        </p>
+                    </div>
+                </div>
+            );
+        };
+
         // BOOK FORM
         const BookForm = ({ book, onSave, onCancel, onBarcodeFound, globalCurrency, books = [] }) => {
             const [form, setForm] = useState(book ? { ...book, pages: book.pages || [] } : {
@@ -2150,7 +2395,12 @@
 
             return (
                 <div className="bg-white min-h-screen pb-24">
-                    {scanMode && <BarcodeScanner onDetected={handleBarcode} onClose={() => setScanMode(false)} />}
+                    {/* Show platform-appropriate barcode/ISBN input */}
+                    {scanMode && (
+                        PlatformUtils.hasNativeBarcodeScanner()
+                            ? <BarcodeScanner onDetected={handleBarcode} onClose={() => setScanMode(false)} />
+                            : <WindowsISBNInput onDetected={handleBarcode} onClose={() => setScanMode(false)} />
+                    )}
                     <div className="p-4 border-b flex justify-between sticky top-0 bg-white z-20 shadow-sm">
                         <button onClick={onCancel} className="text-gray-500">Cancel</button>
                         <h2 className="font-bold">{book ? 'Edit' : 'Cataloging'}</h2>
@@ -2158,7 +2408,10 @@
                     </div>
 
                     <div className="p-4 space-y-5">
-                        {!book && <button onClick={() => setScanMode(true)} className="w-full py-4 bg-gray-800 text-white rounded-xl flex flex-col items-center justify-center font-bold mb-4"><Icon name="Barcode" size={32} /> <span>Scan Barcode</span></button>}
+                        {!book && <button onClick={() => setScanMode(true)} className="w-full py-4 bg-gray-800 text-white rounded-xl flex flex-col items-center justify-center font-bold mb-4">
+                            <Icon name={PlatformUtils.hasNativeBarcodeScanner() ? "Barcode" : "Book"} size={32} />
+                            <span>{PlatformUtils.hasNativeBarcodeScanner() ? "Scan Barcode" : "Enter ISBN"}</span>
+                        </button>}
 
                         {/* GALLERY */}
                         <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
