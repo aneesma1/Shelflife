@@ -30,44 +30,21 @@ jobs:
       - name: Install Tauri CLI
         run: npm install -g @tauri-apps/cli
 
-      - name: Generate placeholder icons
+      - name: Generate app icons
         run: |
-          # Create icons directory first
+          # Create icons directory
           $iconDir = "src-tauri/icons"
           New-Item -ItemType Directory -Force -Path $iconDir
           
-          # Create a proper 32x32 PNG (orange book icon placeholder)
-          # This is a valid minimal 32x32 solid color PNG
-          $png32 = [Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAOklEQVR42mNgGAWjYBSMglEwCkbBKBgFo2AUjIJRMApGwSgYBaNgFIyCUTAKRsEoGAWjYBSQBQBL5wAB/XE0KQAAAABJRU5ErkJggg==")
-          [System.IO.File]::WriteAllBytes("$iconDir/32x32.png", $png32)
-          [System.IO.File]::WriteAllBytes("$iconDir/128x128.png", $png32)
-          [System.IO.File]::WriteAllBytes("$iconDir/128x128@2x.png", $png32)
+          # Create a simple 1024x1024 orange PNG as source (valid PNG structure)
+          # Using ImageMagick which is pre-installed on windows-latest
+          magick -size 1024x1024 xc:"#FF6B35" "$iconDir/app-icon.png"
           
-          # Create a valid minimal ICO file (16x16 orange)
-          # This is a properly formatted ICO with embedded BMP
-          $icoBase64 = "AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
-                       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
-                       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
-                       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
-                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
-                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
-                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
-                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
-                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
-                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
-                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
-                       "/8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zEx//8xMf//MTH//zExAAAAAAAA" +
-                       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
-                       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
-                       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
-                       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-          $icoData = [Convert]::FromBase64String($icoBase64)
-          [System.IO.File]::WriteAllBytes("$iconDir/icon.ico", $icoData)
+          # Use Tauri CLI to generate all required icon formats
+          npx tauri icon "$iconDir/app-icon.png"
           
-          # Create placeholder ICNS (macOS) - just use PNG
-          [System.IO.File]::WriteAllBytes("$iconDir/icon.icns", $png32)
-          
-          Write-Host "Placeholder icons created successfully"
+          Write-Host "Icons generated successfully"
+          Get-ChildItem "$iconDir"
 
       - name: Prepare web assets
         run: |
