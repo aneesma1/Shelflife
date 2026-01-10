@@ -1503,12 +1503,12 @@ files.\n\nContinue?`)) {
                         mergeNewName.trim(); if (!targetName) return; setIsProcessing(true); try {
                             let totalBooks = 0; for
                                 (const sourceTag of selectedTags) {
-                                    if (sourceTag === targetName) continue; const booksWithTag = await
-                                        db.books.where('tags').equals(sourceTag).toArray(); for (const book of booksWithTag) {
-                                            book.tags = book.tags.map(t => t === sourceTag ? targetName : t);
-                                            book.tags = [...new Set(book.tags)];
-                                            await db.books.put(book);
-                                        }
+                                if (sourceTag === targetName) continue; const booksWithTag = await
+                                    db.books.where('tags').equals(sourceTag).toArray(); for (const book of booksWithTag) {
+                                        book.tags = book.tags.map(t => t === sourceTag ? targetName : t);
+                                        book.tags = [...new Set(book.tags)];
+                                        await db.books.put(book);
+                                    }
                                 totalBooks += booksWithTag.length;
                             }
                             alert(`Merged ${selectedTags.length} tags into "${targetName}" (${totalBooks} books updated)`);
@@ -2322,7 +2322,7 @@ files.\n\nContinue?`)) {
                                     {status && (
                                     <p className={`mt - 3 text - sm text - center ${
                                 status.includes('found')
-                                ? 'text-green-600' : 'text-orange-600'
+                                    ? 'text-green-600' : 'text-orange-600'
                             } `}>
                                         {status}
                                     </p>
@@ -4992,8 +4992,8 @@ files.\n\nContinue?`)) {
                         let logs = [];
                         try {
                             logs =
-                            JSON.parse(localStorage.getItem('shelfLife_restoreLogs') ||
-                                '[]');
+                                JSON.parse(localStorage.getItem('shelfLife_restoreLogs') ||
+                                    '[]');
                         } catch (e) { logs = []; }
                         if (!Array.isArray(logs)) logs = [];
 
