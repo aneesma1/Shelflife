@@ -1,6 +1,6 @@
 {
   "name": "shelflife",
-  "version": "2.5.6",
+  "version": "2.5.7",
   "description": "ShelfLife - Personal Book Library Manager",
   "scripts": {
     "build": "echo 'No build step for single file PWA'",

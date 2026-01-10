@@ -884,1091 +884,1090 @@ files.\n\nContinue?`)) {
         const db = new Dexie("ShelfLife_Final_v40");
         // V1 Schema: Original
         db.version(1).stores({
-            books: "++id, title, phonetic, author, owner, publisher, language, building, shelf, status,
-    date_added, isbn, page_count, condition, currency" });
+            books: "++id, title, phonetic, author, owner, publisher, language, building, shelf, status, date_added, isbn, page_count, condition, currency"
+        });
 
-    // V2: Add tags multi-entry index for Tag Manager
-    db.version(2).stores({
-                books: "++id, title, phonetic, author, owner, publisher, language, building, shelf, status, date_added, isbn,
-    page_count, condition, currency, *tags"
-    });
+        // V2: Add tags multi-entry index for Tag Manager
+        db.version(2).stores({
+            books: "++id, title, phonetic, author, owner, publisher, language, building, shelf, status, date_added, isbn, page_count, condition, currency, *tags"
+        });
 
-            // V2 Schema (Implied): Split Author
-            // We use the same database name to keep it simple, but we handle the data migration in code.
-            // On app load, we check and migrate "author" -> "author_name" + "author_initials"
+        // V2 Schema (Implied): Split Author
+        // We use the same database name to keep it simple, but we handle the data migration in code.
+        // On app load, we check and migrate "author" -> "author_name" + "author_initials"
 
-            const migrateAuthors = async () => {
-                const books = await db.books.toArray();
-                let migratedCount = 0;
-                const updates = [];
+        const migrateAuthors = async () => {
+            const books = await db.books.toArray();
+            let migratedCount = 0;
+            const updates = [];
 
-                for (const book of books) {
-                    if (book.author && !book.author_name) {
-                        const parts = book.author.trim().split(' ');
-                        let name = parts.pop() || '';
-                        let initials = parts.join(' ') || '';
+            for (const book of books) {
+                if (book.author && !book.author_name) {
+                    const parts = book.author.trim().split(' ');
+                    let name = parts.pop() || '';
+                    let initials = parts.join(' ') || '';
 
-                        // IF single word, treat as Name, no initials
-                        if (!initials && !name) { name = book.author; }
+                    // IF single word, treat as Name, no initials
+                    if (!initials && !name) { name = book.author; }
 
-                        updates.push({
-                            key: book.id,
-                            changes: {
-                                author: undefined, // Remove old
-                                author_name: name,
-                                author_initials: initials
-                            }
-                        });
-                        migratedCount++;
+                    updates.push({
+                        key: book.id,
+                        changes: {
+                            author: undefined, // Remove old
+                            author_name: name,
+                            author_initials: initials
+                        }
+                    });
+                    migratedCount++;
+                }
+            }
+
+            if (migratedCount > 0) {
+                await db.transaction('rw', db.books, async () => {
+                    for (const u of updates) {
+                        await db.books.update(u.key, u.changes);
                     }
-                }
+                });
+                console.log(`Migrated ${migratedCount} books to new Author format.`);
+            }
+        };
 
-                if (migratedCount > 0) {
-                    await db.transaction('rw', db.books, async () => {
-                        for (const u of updates) {
-                            await db.books.update(u.key, u.changes);
-                        }
+        // Language Code to Full Name Map
+        const LANG_MAP = {
+            'en': 'English',
+            'ml': 'Malayalam',
+            'hi': 'Hindi',
+            'ar': 'Arabic'
+        };
+
+        // Migrate lang code to full language name
+        const migrateLanguage = async () => {
+            const books = await db.books.toArray();
+            let migratedCount = 0;
+
+            for (const book of books) {
+                if (book.lang && !book.language) {
+                    await db.books.update(book.id, {
+                        language: LANG_MAP[book.lang] || book.lang
                     });
-                    console.log(`Migrated ${migratedCount} books to new Author format.`);
+                    migratedCount++;
                 }
-            };
+            }
 
-            // Language Code to Full Name Map
-            const LANG_MAP = {
-                'en': 'English',
-                'ml': 'Malayalam',
-                'hi': 'Hindi',
-                'ar': 'Arabic'
-            };
+            if (migratedCount > 0) {
+                console.log(`Migrated ${migratedCount} books to new Language format.`);
+            }
+        };
 
-            // Migrate lang code to full language name
-            const migrateLanguage = async () => {
-                const books = await db.books.toArray();
-                let migratedCount = 0;
+        const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
-                for (const book of books) {
-                    if (book.lang && !book.language) {
-                        await db.books.update(book.id, {
-                            language: LANG_MAP[book.lang] || book.lang
-                        });
-                        migratedCount++;
-                    }
-                }
+        // AUTO-SUGGEST INPUT with viewport-aware dropdown (avoids keyboard)
+        const AutoSuggestInput = ({ label, value, onChange, field, placeholder }) => {
+            const [suggestions, setSuggestions] = useState([]);
+            const [showDropdown, setShowDropdown] = useState(false);
+            const [maxHeight, setMaxHeight] = useState(150);
+            const [filteredSuggestions, setFilteredSuggestions] = useState([]);
+            const inputRef = useRef(null);
+            const dropdownRef = useRef(null);
 
-                if (migratedCount > 0) {
-                    console.log(`Migrated ${migratedCount} books to new Language format.`);
-                }
-            };
+            // Fetch suggestions from database
+            useEffect(() => {
+                db.books.toArray().then(all => {
+                    const set = new Set(all.map(b => b[field]).filter(Boolean));
+                    setSuggestions([...set].sort());
+                });
+            }, [field]);
 
-            const { useState, useEffect, useMemo, useRef, useCallback } = React;
+            // Calculate dropdown height based on viewport
+            const calculateMaxHeight = useCallback(() => {
+                if (!inputRef.current) return 150;
+                const rect = inputRef.current.getBoundingClientRect();
+                const viewportHeight = window.visualViewport?.height || window.innerHeight;
+                const estimatedKeyboardHeight = viewportHeight * 0.4;
+                const safeGap = 20;
+                return Math.max(80, Math.min(viewportHeight - rect.bottom - estimatedKeyboardHeight - safeGap, 200));
+            }, []);
 
-            // AUTO-SUGGEST INPUT with viewport-aware dropdown (avoids keyboard)
-            const AutoSuggestInput = ({ label, value, onChange, field, placeholder }) => {
-                const [suggestions, setSuggestions] = useState([]);
-                const [showDropdown, setShowDropdown] = useState(false);
-                const [maxHeight, setMaxHeight] = useState(150);
-                const [filteredSuggestions, setFilteredSuggestions] = useState([]);
-                const inputRef = useRef(null);
-                const dropdownRef = useRef(null);
+            // Filter suggestions based on input
+            useEffect(() => {
+                if (!value || value.length < 1) { setFilteredSuggestions([]); setShowDropdown(false); return; } const
+                    q = value.toLowerCase(); const filtered = suggestions.filter(s => s.toLowerCase().includes(q)).slice(0, 15);
+                setFilteredSuggestions(filtered);
+                setShowDropdown(filtered.length > 0);
+            }, [value, suggestions]);
 
-                // Fetch suggestions from database
-                useEffect(() => {
-                    db.books.toArray().then(all => {
-                        const set = new Set(all.map(b => b[field]).filter(Boolean));
-                        setSuggestions([...set].sort());
-                    });
-                }, [field]);
-
-                // Calculate dropdown height based on viewport
-                const calculateMaxHeight = useCallback(() => {
-                    if (!inputRef.current) return 150;
-                    const rect = inputRef.current.getBoundingClientRect();
-                    const viewportHeight = window.visualViewport?.height || window.innerHeight;
-                    const estimatedKeyboardHeight = viewportHeight * 0.4;
-                    const safeGap = 20;
-                    return Math.max(80, Math.min(viewportHeight - rect.bottom - estimatedKeyboardHeight - safeGap, 200));
-                }, []);
-
-                // Filter suggestions based on input
-                useEffect(() => {
-                    if (!value || value.length < 1) { setFilteredSuggestions([]); setShowDropdown(false); return; } const
-                        q = value.toLowerCase(); const filtered = suggestions.filter(s => s.toLowerCase().includes(q)).slice(0, 15);
-                    setFilteredSuggestions(filtered);
-                    setShowDropdown(filtered.length > 0);
-                }, [value, suggestions]);
-
-                // Recalculate height on viewport changes
-                useEffect(() => {
-                    const updateHeight = () => setMaxHeight(calculateMaxHeight());
-                    updateHeight();
-                    window.addEventListener('resize', updateHeight);
-                    window.visualViewport?.addEventListener('resize', updateHeight);
-                    return () => {
-                        window.removeEventListener('resize', updateHeight);
-                        window.visualViewport?.removeEventListener('resize', updateHeight);
-                    };
-                }, [calculateMaxHeight]);
-
-                // Close dropdown on outside click
-                useEffect(() => {
-                    const handleClickOutside = (e) => {
-                        if (dropdownRef.current && !dropdownRef.current.contains(e.target) &&
-                            inputRef.current && !inputRef.current.contains(e.target)) {
-                            setShowDropdown(false);
-                        }
-                    };
-                    document.addEventListener('mousedown', handleClickOutside);
-                    return () => document.removeEventListener('mousedown', handleClickOutside);
-                }, []);
-
-                const selectSuggestion = (s) => {
-                    onChange({ target: { value: s } });
-                    setShowDropdown(false);
+            // Recalculate height on viewport changes
+            useEffect(() => {
+                const updateHeight = () => setMaxHeight(calculateMaxHeight());
+                updateHeight();
+                window.addEventListener('resize', updateHeight);
+                window.visualViewport?.addEventListener('resize', updateHeight);
+                return () => {
+                    window.removeEventListener('resize', updateHeight);
+                    window.visualViewport?.removeEventListener('resize', updateHeight);
                 };
+            }, [calculateMaxHeight]);
 
-                return (
-                    <div className="relative">
-                        <label className="text-xs text-gray-500 font-bold">{label}</label>
-                        <input ref={inputRef} className="w-full p-3 border rounded-lg" value={value} onChange={onChange}
-                            placeholder={placeholder} onFocus={() => filteredSuggestions.length > 0 && setShowDropdown(true)}
-                        />
-                        {showDropdown && filteredSuggestions.length > 0 && (
-                            <div ref={dropdownRef}
-                                className="absolute left-0 right-0 top-full mt-1 bg-white border rounded-lg shadow-lg z-50 overflow-y-auto"
-                                style={{ maxHeight: `${maxHeight}px` }}>
-                                {filteredSuggestions.map((s, i) => (
-                                    <div key={i} className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-b-0"
-                                        onClick={() => selectSuggestion(s)}
-                                    >
-                                        {s}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                );
-            };
-
-            // DYNAMIC SEARCH INPUT with viewport-aware dropdown (avoids keyboard)
-            const DynamicSearchInput = ({ value, onChange, suggestions, placeholder, icon }) => {
-                const [showDropdown, setShowDropdown] = useState(false);
-                const [maxHeight, setMaxHeight] = useState(150);
-                const [filteredSuggestions, setFilteredSuggestions] = useState([]);
-                const inputRef = useRef(null);
-                const dropdownRef = useRef(null);
-
-                // Calculate max dropdown height based on available viewport space
-                const calculateMaxHeight = useCallback(() => {
-                    if (!inputRef.current) return 150;
-
-                    const rect = inputRef.current.getBoundingClientRect();
-                    const viewportHeight = window.visualViewport?.height || window.innerHeight;
-
-                    // Estimate keyboard takes ~40% of screen on mobile
-                    const estimatedKeyboardHeight = viewportHeight * 0.4;
-                    const safeGap = 20; // Gap above keyboard
-
-                    // Available space = from bottom of input to keyboard
-                    const available = viewportHeight - rect.bottom - estimatedKeyboardHeight - safeGap;
-
-                    // Clamp between 80px (min) and 250px (max)
-                    return Math.max(80, Math.min(available, 250));
-                }, []);
-
-                // Filter suggestions based on input
-                useEffect(() => {
-                    if (!value || value.length < 1) { setFilteredSuggestions([]); setShowDropdown(false); return; } const
-                        q = value.toLowerCase(); const filtered = suggestions.filter(s =>
-                            s.toLowerCase().includes(q)
-                        ).slice(0, 20); // Max 20 suggestions
-
-                    setFilteredSuggestions(filtered);
-                    setShowDropdown(filtered.length > 0);
-                }, [value, suggestions]);
-
-                // Recalculate height on viewport changes
-                useEffect(() => {
-                    const updateHeight = () => setMaxHeight(calculateMaxHeight());
-
-                    updateHeight();
-                    window.addEventListener('resize', updateHeight);
-                    window.visualViewport?.addEventListener('resize', updateHeight);
-
-                    return () => {
-                        window.removeEventListener('resize', updateHeight);
-                        window.visualViewport?.removeEventListener('resize', updateHeight);
-                    };
-                }, [calculateMaxHeight]);
-
-                // Close dropdown when clicking outside
-                useEffect(() => {
-                    const handleClickOutside = (e) => {
-                        if (dropdownRef.current && !dropdownRef.current.contains(e.target) &&
-                            inputRef.current && !inputRef.current.contains(e.target)) {
-                            setShowDropdown(false);
-                        }
-                    };
-                    document.addEventListener('mousedown', handleClickOutside);
-                    return () => document.removeEventListener('mousedown', handleClickOutside);
-                }, []);
-
-                const selectSuggestion = (s) => {
-                    onChange({ target: { value: s } });
-                    setShowDropdown(false);
-                };
-
-                return (
-                    <div className="relative flex-1">
-                        {icon &&
-                            <Icon name={icon} className="absolute left-2 top-2 text-gray-400" size={14} />}
-                        <input ref={inputRef} className={`w-full p-2 border rounded ${icon ? 'pl-8' : ''}`}
-                            placeholder={placeholder} value={value} onChange={onChange} onFocus={() => filteredSuggestions.length
-                                > 0 && setShowDropdown(true)}
-                        />
-                        {showDropdown && filteredSuggestions.length > 0 && (
-                            <div ref={dropdownRef}
-                                className="absolute left-0 right-0 top-full mt-1 bg-white border rounded-lg shadow-lg z-50 overflow-y-auto"
-                                style={{ maxHeight: `${maxHeight}px` }}>
-                                {filteredSuggestions.map((s, i) => (
-                                    <div key={i} className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-b-0"
-                                        onClick={() => selectSuggestion(s)}
-                                    >
-                                        {s}
-                                    </div>
-                                ))}
-                                {filteredSuggestions.length === 20 && (
-                                    <div className="px-3 py-1 text-xs text-gray-400 text-center bg-gray-50">
-                                        Showing first 20 results
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                );
-            };
-
-            // VOICE INPUT (Wrapped)
-            const VoiceInput = ({ label, value, onChange, onVoice, isListening, lang, type = "text", placeholder }) => {
-                return (
-                    <div className="relative">
-                        <label className="text-xs text-gray-500 font-bold">{label}</label>
-                        <div className="relative">
-                            <input type={type} className="w-full p-3 border rounded-lg pr-10" placeholder={placeholder}
-                                value={value} onChange={onChange} lang={lang} />
-                            {PlatformUtils.hasSpeechRecognition() && (
-                                <button type="button" onClick={onVoice} className={`absolute right-2 top-2 p-1 rounded-full
-                        ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400'}`}>
-                                    <Icon name="Mic" size={20} />
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                );
-            };
-
-            // TAG TOKEN INPUT (Pills/Chips with Autocomplete)
-            const TagTokenInput = ({ label, value = [], onChange, allBooks = [], placeholder = "Add tags..." }) => {
-                const [input, setInput] = useState('');
-                const [showDropdown, setShowDropdown] = useState(false);
-                const [suggestions, setSuggestions] = useState([]);
-                const [selectedIndex, setSelectedIndex] = useState(-1);
-                const [maxHeight, setMaxHeight] = useState(150);
-                const inputRef = useRef(null);
-                const dropdownRef = useRef(null);
-
-                // Calculate dropdown height based on viewport
-                const calculateMaxHeight = useCallback(() => {
-                    if (!inputRef.current) return 150;
-                    const rect = inputRef.current.getBoundingClientRect();
-                    const viewportHeight = window.visualViewport?.height || window.innerHeight;
-                    const estimatedKeyboardHeight = viewportHeight * 0.4;
-                    const safeGap = 20;
-                    return Math.max(80, Math.min(viewportHeight - rect.bottom - estimatedKeyboardHeight - safeGap, 200));
-                }, []);
-
-                // Recalculate height on viewport changes
-                useEffect(() => {
-                    const updateHeight = () => setMaxHeight(calculateMaxHeight());
-                    updateHeight();
-                    window.visualViewport?.addEventListener('resize', updateHeight);
-                    return () => window.visualViewport?.removeEventListener('resize', updateHeight);
-                }, [calculateMaxHeight]);
-
-                // Extract all unique tags from library
-                const allTags = useMemo(() => {
-                    const tagSet = new Set();
-                    allBooks.forEach(book => {
-                        if (book.tags && Array.isArray(book.tags)) {
-                            book.tags.forEach(tag => {
-                                if (tag && tag.trim()) tagSet.add(tag.trim());
-                            });
-                        }
-                    });
-                    return Array.from(tagSet).sort();
-                }, [allBooks]);
-
-                // Filter suggestions based on input
-                useEffect(() => {
-                    if (!input.trim()) {
-                        setSuggestions([]);
+            // Close dropdown on outside click
+            useEffect(() => {
+                const handleClickOutside = (e) => {
+                    if (dropdownRef.current && !dropdownRef.current.contains(e.target) &&
+                        inputRef.current && !inputRef.current.contains(e.target)) {
                         setShowDropdown(false);
-                        return;
-                    }
-
-                    const filtered = allTags.filter(tag =>
-                        tag.toLowerCase().includes(input.toLowerCase()) &&
-                        !value.includes(tag)
-                    );
-                    setSuggestions(filtered.slice(0, 8)); // Limit to 8 suggestions
-                    setShowDropdown(true); // Always show dropdown if input exists
-                    setSelectedIndex(-1);
-                }, [input, allTags, value]);
-
-                // Add tag (with Title Case formatting)
-                const addTag = (tag) => {
-                    const formatted = toTitleCase(tag);
-                    if (!formatted || value.some(v => v.toLowerCase() === formatted.toLowerCase())) return;
-
-                    const newTags = [...value, formatted];
-                    onChange(newTags);
-                    setInput('');
-                    setShowDropdown(false);
-                    setSelectedIndex(-1);
-                    inputRef.current?.focus();
-                };
-
-                // Remove tag
-                const removeTag = (indexToRemove) => {
-                    const newTags = value.filter((_, index) => index !== indexToRemove);
-                    onChange(newTags);
-                    inputRef.current?.focus();
-                };
-
-                // Keyboard navigation
-                const handleKeyDown = (e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (selectedIndex >= 0 && suggestions[selectedIndex]) {
-                            addTag(suggestions[selectedIndex]);
-                        } else if (input.trim()) {
-                            addTag(input);
-                        }
-                    } else if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        setSelectedIndex(prev =>
-                            prev < suggestions.length - 1 ? prev + 1 : prev);
-                    } else if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        setSelectedIndex(prev => prev > 0 ? prev - 1 : -1);
-                    } else if (e.key === 'Backspace' && !input && value.length > 0) {
-                        removeTag(value.length - 1);
-                    } else if (e.key === 'Escape') {
-                        setShowDropdown(false);
-                        setSelectedIndex(-1);
                     }
                 };
+                document.addEventListener('mousedown', handleClickOutside);
+                return () => document.removeEventListener('mousedown', handleClickOutside);
+            }, []);
 
-                // Click outside to close dropdown
-                useEffect(() => {
-                    const handleClickOutside = (e) => {
-                        if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-                            setShowDropdown(false);
-                        }
-                    };
-                    document.addEventListener('mousedown', handleClickOutside);
-                    return () => document.removeEventListener('mousedown', handleClickOutside);
-                }, []);
+            const selectSuggestion = (s) => {
+                onChange({ target: { value: s } });
+                setShowDropdown(false);
+            };
 
-                return (
-                    <div className="relative" ref={dropdownRef}>
-                        <label className="text-xs text-gray-500 font-bold">{label}</label>
-                        <div className="w-full p-2 border rounded-lg min-h-[44px] flex flex-wrap gap-2 items-center cursor-text"
-                            onClick={() => inputRef.current?.focus()}>
-                            {/* Tag Pills */}
-                            {value.map((tag, index) => (
-                                <div key={index}
-                                    className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-                                    <span>{tag}</span>
-                                    <button type="button" onClick={(e) => { e.stopPropagation(); removeTag(index); }}
-                                        className="hover:bg-blue-200 rounded-full p-0.5 transition">
-                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                                d="M6 18L18 6M6 6l12 12" />
-                                        </svg>
-                                    </button>
+            return (
+                <div className="relative">
+                    <label className="text-xs text-gray-500 font-bold">{label}</label>
+                    <input ref={inputRef} className="w-full p-3 border rounded-lg" value={value} onChange={onChange}
+                        placeholder={placeholder} onFocus={() => filteredSuggestions.length > 0 && setShowDropdown(true)}
+                    />
+                    {showDropdown && filteredSuggestions.length > 0 && (
+                        <div ref={dropdownRef}
+                            className="absolute left-0 right-0 top-full mt-1 bg-white border rounded-lg shadow-lg z-50 overflow-y-auto"
+                            style={{ maxHeight: `${maxHeight}px` }}>
+                            {filteredSuggestions.map((s, i) => (
+                                <div key={i} className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-b-0"
+                                    onClick={() => selectSuggestion(s)}
+                                >
+                                    {s}
                                 </div>
                             ))}
-
-                            {/* Input Field */}
-                            <input ref={inputRef} type="text" className="flex-1 min-w-[120px] outline-none bg-transparent"
-                                placeholder={value.length === 0 ? placeholder : ""} value={input} onChange={(e) =>
-                                    setInput(e.target.value)}
-                                onKeyDown={handleKeyDown}
-                                onFocus={() => input && setShowDropdown(suggestions.length > 0)}
-                            />
                         </div>
+                    )}
+                </div>
+            );
+        };
 
-                        {/* Autocomplete Dropdown */}
-                        {showDropdown && (
-                            <div className="absolute z-50 w-full mt-1 bg-white border rounded-lg shadow-lg overflow-y-auto"
-                                style={{ maxHeight: `${maxHeight}px` }}>
-                                {suggestions.map((suggestion, index) => (
-                                    <div key={index} className={`px-3 py-2 cursor-pointer transition ${index === selectedIndex
-                                        ? 'bg-blue-100' : 'hover:bg-gray-100'}`} onClick={() => addTag(suggestion)}>
-                                        {suggestion}
-                                    </div>
-                                ))}
-                                {/* Option to create new tag */}
-                                {input && !allTags.includes(input.trim()) && (
-                                    <div className={`px-3 py-2 cursor-pointer border-t text-blue-600 font-medium transition
-                            ${selectedIndex === suggestions.length ? 'bg-blue-50' : 'hover:bg-gray-50'}`} onClick={() =>
-                                            addTag(input)}>
-                                        + Create "{input.trim()}"
-                                    </div>
-                                )}
-                            </div>
+        // DYNAMIC SEARCH INPUT with viewport-aware dropdown (avoids keyboard)
+        const DynamicSearchInput = ({ value, onChange, suggestions, placeholder, icon }) => {
+            const [showDropdown, setShowDropdown] = useState(false);
+            const [maxHeight, setMaxHeight] = useState(150);
+            const [filteredSuggestions, setFilteredSuggestions] = useState([]);
+            const inputRef = useRef(null);
+            const dropdownRef = useRef(null);
+
+            // Calculate max dropdown height based on available viewport space
+            const calculateMaxHeight = useCallback(() => {
+                if (!inputRef.current) return 150;
+
+                const rect = inputRef.current.getBoundingClientRect();
+                const viewportHeight = window.visualViewport?.height || window.innerHeight;
+
+                // Estimate keyboard takes ~40% of screen on mobile
+                const estimatedKeyboardHeight = viewportHeight * 0.4;
+                const safeGap = 20; // Gap above keyboard
+
+                // Available space = from bottom of input to keyboard
+                const available = viewportHeight - rect.bottom - estimatedKeyboardHeight - safeGap;
+
+                // Clamp between 80px (min) and 250px (max)
+                return Math.max(80, Math.min(available, 250));
+            }, []);
+
+            // Filter suggestions based on input
+            useEffect(() => {
+                if (!value || value.length < 1) { setFilteredSuggestions([]); setShowDropdown(false); return; } const
+                    q = value.toLowerCase(); const filtered = suggestions.filter(s =>
+                        s.toLowerCase().includes(q)
+                    ).slice(0, 20); // Max 20 suggestions
+
+                setFilteredSuggestions(filtered);
+                setShowDropdown(filtered.length > 0);
+            }, [value, suggestions]);
+
+            // Recalculate height on viewport changes
+            useEffect(() => {
+                const updateHeight = () => setMaxHeight(calculateMaxHeight());
+
+                updateHeight();
+                window.addEventListener('resize', updateHeight);
+                window.visualViewport?.addEventListener('resize', updateHeight);
+
+                return () => {
+                    window.removeEventListener('resize', updateHeight);
+                    window.visualViewport?.removeEventListener('resize', updateHeight);
+                };
+            }, [calculateMaxHeight]);
+
+            // Close dropdown when clicking outside
+            useEffect(() => {
+                const handleClickOutside = (e) => {
+                    if (dropdownRef.current && !dropdownRef.current.contains(e.target) &&
+                        inputRef.current && !inputRef.current.contains(e.target)) {
+                        setShowDropdown(false);
+                    }
+                };
+                document.addEventListener('mousedown', handleClickOutside);
+                return () => document.removeEventListener('mousedown', handleClickOutside);
+            }, []);
+
+            const selectSuggestion = (s) => {
+                onChange({ target: { value: s } });
+                setShowDropdown(false);
+            };
+
+            return (
+                <div className="relative flex-1">
+                    {icon &&
+                        <Icon name={icon} className="absolute left-2 top-2 text-gray-400" size={14} />}
+                    <input ref={inputRef} className={`w-full p-2 border rounded ${icon ? 'pl-8' : ''}`}
+                        placeholder={placeholder} value={value} onChange={onChange} onFocus={() => filteredSuggestions.length
+                            > 0 && setShowDropdown(true)}
+                    />
+                    {showDropdown && filteredSuggestions.length > 0 && (
+                        <div ref={dropdownRef}
+                            className="absolute left-0 right-0 top-full mt-1 bg-white border rounded-lg shadow-lg z-50 overflow-y-auto"
+                            style={{ maxHeight: `${maxHeight}px` }}>
+                            {filteredSuggestions.map((s, i) => (
+                                <div key={i} className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-b-0"
+                                    onClick={() => selectSuggestion(s)}
+                                >
+                                    {s}
+                                </div>
+                            ))}
+                            {filteredSuggestions.length === 20 && (
+                                <div className="px-3 py-1 text-xs text-gray-400 text-center bg-gray-50">
+                                    Showing first 20 results
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // VOICE INPUT (Wrapped)
+        const VoiceInput = ({ label, value, onChange, onVoice, isListening, lang, type = "text", placeholder }) => {
+            return (
+                <div className="relative">
+                    <label className="text-xs text-gray-500 font-bold">{label}</label>
+                    <div className="relative">
+                        <input type={type} className="w-full p-3 border rounded-lg pr-10" placeholder={placeholder}
+                            value={value} onChange={onChange} lang={lang} />
+                        {PlatformUtils.hasSpeechRecognition() && (
+                            <button type="button" onClick={onVoice} className={`absolute right-2 top-2 p-1 rounded-full
+                        ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400'}`}>
+                                <Icon name="Mic" size={20} />
+                            </button>
                         )}
                     </div>
-                );
-            };
+                </div>
+            );
+        };
 
-            // TAG MANAGER - Colorful chip tokens with full CRUD operations
-            const TAG_COLORS = [
-                { bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-300' },
-                { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-300' },
-                { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300' },
-                { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300' },
-                { bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-300' },
-                { bg: 'bg-pink-100', text: 'text-pink-800', border: 'border-pink-300' },
-                { bg: 'bg-indigo-100', text: 'text-indigo-800', border: 'border-indigo-300' },
-                { bg: 'bg-orange-100', text: 'text-orange-800', border: 'border-orange-300' },
-            ];
+        // TAG TOKEN INPUT (Pills/Chips with Autocomplete)
+        const TagTokenInput = ({ label, value = [], onChange, allBooks = [], placeholder = "Add tags..." }) => {
+            const [input, setInput] = useState('');
+            const [showDropdown, setShowDropdown] = useState(false);
+            const [suggestions, setSuggestions] = useState([]);
+            const [selectedIndex, setSelectedIndex] = useState(-1);
+            const [maxHeight, setMaxHeight] = useState(150);
+            const inputRef = useRef(null);
+            const dropdownRef = useRef(null);
 
-            const getTagColor = (tag) => {
-                const hash = tag.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-                return TAG_COLORS[hash % TAG_COLORS.length];
-            };
+            // Calculate dropdown height based on viewport
+            const calculateMaxHeight = useCallback(() => {
+                if (!inputRef.current) return 150;
+                const rect = inputRef.current.getBoundingClientRect();
+                const viewportHeight = window.visualViewport?.height || window.innerHeight;
+                const estimatedKeyboardHeight = viewportHeight * 0.4;
+                const safeGap = 20;
+                return Math.max(80, Math.min(viewportHeight - rect.bottom - estimatedKeyboardHeight - safeGap, 200));
+            }, []);
 
-            // Title Case formatter for consistent tag naming
-            const toTitleCase = (str) => {
-                return str.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-            };
+            // Recalculate height on viewport changes
+            useEffect(() => {
+                const updateHeight = () => setMaxHeight(calculateMaxHeight());
+                updateHeight();
+                window.visualViewport?.addEventListener('resize', updateHeight);
+                return () => window.visualViewport?.removeEventListener('resize', updateHeight);
+            }, [calculateMaxHeight]);
 
-            const TagManagerModal = ({ isOpen, onClose, books, onTagsUpdated }) => {
-                const [allTags, setAllTags] = useState([]);
-                const [selectedTags, setSelectedTags] = useState([]);
-                const [searchQuery, setSearchQuery] = useState('');
-                const [showDropdown, setShowDropdown] = useState(false);
-                const [maxHeight, setMaxHeight] = useState(200);
-                const [renameTag, setRenameTag] = useState(null);
-                const [renameValue, setRenameValue] = useState('');
-                const [deleteTag, setDeleteTag] = useState(null);
-                const [deleteAction, setDeleteAction] = useState('remove');
-                const [replaceTarget, setReplaceTarget] = useState('');
-                const [showMergeModal, setShowMergeModal] = useState(false);
-                const [mergeTarget, setMergeTarget] = useState('');
-                const [mergeNewName, setMergeNewName] = useState('');
-                const [mergeMode, setMergeMode] = useState('existing');
-                const [isProcessing, setIsProcessing] = useState(false);
-                const [showBrowseAll, setShowBrowseAll] = useState(false);
-                const inputRef = useRef(null);
-
-                // Calculate all tags with counts
-                const refreshTags = useCallback(async () => {
-                    const allBooks = await db.books.toArray();
-                    const tagMap = new Map();
-                    allBooks.forEach(book => {
-                        (book.tags || []).forEach(tag => {
-                            if (!tagMap.has(tag)) tagMap.set(tag, { count: 0, bookIds: [] });
-                            tagMap.get(tag).count++;
-                            tagMap.get(tag).bookIds.push(book.id);
+            // Extract all unique tags from library
+            const allTags = useMemo(() => {
+                const tagSet = new Set();
+                allBooks.forEach(book => {
+                    if (book.tags && Array.isArray(book.tags)) {
+                        book.tags.forEach(tag => {
+                            if (tag && tag.trim()) tagSet.add(tag.trim());
                         });
-                    });
-                    const tags = Array.from(tagMap.entries())
-                        .map(([tag, data]) => ({ tag, ...data }))
-                        .sort((a, b) => b.count - a.count);
-                    setAllTags(tags);
-                }, []);
-
-                useEffect(() => {
-                    if (isOpen) {
-                        refreshTags();
-                        setSearchQuery('');
-                        setSelectedTags([]);
                     }
-                }, [isOpen, refreshTags]);
+                });
+                return Array.from(tagSet).sort();
+            }, [allBooks]);
 
-                // Keyboard-aware height calculation
-                const calculateMaxHeight = useCallback(() => {
-                    if (!inputRef.current) return 200;
-                    const rect = inputRef.current.getBoundingClientRect();
-                    const viewportHeight = window.visualViewport?.height || window.innerHeight;
-                    const estimatedKeyboardHeight = viewportHeight * 0.4;
-                    const safeGap = 20;
-                    return Math.max(100, Math.min(viewportHeight - rect.bottom - estimatedKeyboardHeight - safeGap, 250));
-                }, []);
-
-                useEffect(() => {
-                    const updateHeight = () => setMaxHeight(calculateMaxHeight());
-                    updateHeight();
-                    window.visualViewport?.addEventListener('resize', updateHeight);
-                    return () => window.visualViewport?.removeEventListener('resize', updateHeight);
-                }, [calculateMaxHeight]);
-
-                // Filter tags by search (search-first: show nothing if empty)
-                const filteredTags = useMemo(() => {
-                    if (!searchQuery.trim()) return [];
-                    const q = searchQuery.toLowerCase();
-                    return allTags.filter(t => t.tag.toLowerCase().includes(q)).slice(0, 15);
-                }, [allTags, searchQuery]);
-
-                // Check if search query is a new tag (doesn't exist)
-                const isNewTag = useMemo(() => {
-                    if (!searchQuery.trim()) return false;
-                    const q = searchQuery.trim().toLowerCase();
-                    return !allTags.some(t => t.tag.toLowerCase() === q);
-                }, [allTags, searchQuery]);
-
-                // Toggle tag selection (add as chip)
-                const selectTag = (tag) => {
-                    if (!selectedTags.includes(tag)) {
-                        setSelectedTags([...selectedTags, tag]);
-                    }
-                    setSearchQuery('');
+            // Filter suggestions based on input
+            useEffect(() => {
+                if (!input.trim()) {
+                    setSuggestions([]);
                     setShowDropdown(false);
-                };
+                    return;
+                }
 
-                // Remove chip
-                const removeTag = (tag) => {
-                    setSelectedTags(selectedTags.filter(t => t !== tag));
-                };
+                const filtered = allTags.filter(tag =>
+                    tag.toLowerCase().includes(input.toLowerCase()) &&
+                    !value.includes(tag)
+                );
+                setSuggestions(filtered.slice(0, 8)); // Limit to 8 suggestions
+                setShowDropdown(true); // Always show dropdown if input exists
+                setSelectedIndex(-1);
+            }, [input, allTags, value]);
 
-                // Create new tag and add to selection (with Title Case)
-                const handleCreateTag = () => {
-                    const newTag = toTitleCase(searchQuery);
-                    if (newTag && !selectedTags.some(t => t.toLowerCase() === newTag.toLowerCase())) {
-                        setSelectedTags([...selectedTags, newTag]);
+            // Add tag (with Title Case formatting)
+            const addTag = (tag) => {
+                const formatted = toTitleCase(tag);
+                if (!formatted || value.some(v => v.toLowerCase() === formatted.toLowerCase())) return;
+
+                const newTags = [...value, formatted];
+                onChange(newTags);
+                setInput('');
+                setShowDropdown(false);
+                setSelectedIndex(-1);
+                inputRef.current?.focus();
+            };
+
+            // Remove tag
+            const removeTag = (indexToRemove) => {
+                const newTags = value.filter((_, index) => index !== indexToRemove);
+                onChange(newTags);
+                inputRef.current?.focus();
+            };
+
+            // Keyboard navigation
+            const handleKeyDown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (selectedIndex >= 0 && suggestions[selectedIndex]) {
+                        addTag(suggestions[selectedIndex]);
+                    } else if (input.trim()) {
+                        addTag(input);
                     }
-                    setSearchQuery('');
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSelectedIndex(prev =>
+                        prev < suggestions.length - 1 ? prev + 1 : prev);
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSelectedIndex(prev => prev > 0 ? prev - 1 : -1);
+                } else if (e.key === 'Backspace' && !input && value.length > 0) {
+                    removeTag(value.length - 1);
+                } else if (e.key === 'Escape') {
                     setShowDropdown(false);
-                };
+                    setSelectedIndex(-1);
+                }
+            };
 
-                // Rename tag
-                const handleRename = async () => {
-                    if (!renameTag || !renameValue.trim()) return;
-                    setIsProcessing(true);
-                    try {
-                        const booksWithTag = await db.books.where('tags').equals(renameTag).toArray();
-                        for (const book of booksWithTag) {
-                            book.tags = book.tags.map(t => t === renameTag ? renameValue.trim() : t);
-                            await db.books.put(book);
-                        }
-                        alert(`Renamed "${renameTag}" → "${renameValue.trim()}" in ${booksWithTag.length} books`);
-                        onClose();
-                        if (onTagsUpdated) onTagsUpdated();
-                    } finally {
-                        setIsProcessing(false);
+            // Click outside to close dropdown
+            useEffect(() => {
+                const handleClickOutside = (e) => {
+                    if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+                        setShowDropdown(false);
                     }
                 };
+                document.addEventListener('mousedown', handleClickOutside);
+                return () => document.removeEventListener('mousedown', handleClickOutside);
+            }, []);
 
-                // Delete tag with options
-                const handleDelete = async () => {
-                    if (!deleteTag) return;
-                    setIsProcessing(true);
-                    try {
-                        const booksWithTag = await db.books.where('tags').equals(deleteTag).toArray();
-                        for (const book of booksWithTag) {
-                            if (deleteAction === 'remove') {
-                                book.tags = book.tags.filter(t => t !== deleteTag);
-                            } else if (deleteAction === 'replaceExisting' && replaceTarget) {
-                                book.tags = book.tags.map(t => t === deleteTag ? replaceTarget : t);
-                                book.tags = [...new Set(book.tags)];
-                            } else if (deleteAction === 'replaceNew' && replaceTarget.trim()) {
-                                book.tags = book.tags.map(t => t === deleteTag ? replaceTarget.trim() : t);
-                            }
-                            await db.books.put(book);
-                        }
-                        const actionText = deleteAction === 'remove' ? 'removed from' : 'replaced in';
-                        alert(`"${deleteTag}" ${actionText} ${booksWithTag.length} books`);
-                        onClose();
-                        if (onTagsUpdated) onTagsUpdated();
-                    } finally {
-                        setIsProcessing(false);
-                    }
-                };
-
-                // Merge multiple tags
-                const handleMerge = async () => {
-                    if (selectedTags.length < 2) return; const targetName = mergeMode === 'existing' ? mergeTarget :
-                        mergeNewName.trim(); if (!targetName) return; setIsProcessing(true); try {
-                            let totalBooks = 0; for
-                                (const sourceTag of selectedTags) {
-                                if (sourceTag === targetName) continue; const booksWithTag = await
-                                    db.books.where('tags').equals(sourceTag).toArray(); for (const book of booksWithTag) {
-                                        book.tags = book.tags.map(t => t === sourceTag ? targetName : t);
-                                        book.tags = [...new Set(book.tags)];
-                                        await db.books.put(book);
-                                    }
-                                totalBooks += booksWithTag.length;
-                            }
-                            alert(`Merged ${selectedTags.length} tags into "${targetName}" (${totalBooks} books updated)`);
-                            onClose();
-                            if (onTagsUpdated) onTagsUpdated();
-                        } finally {
-                        setIsProcessing(false);
-                    }
-                };
-
-                if (!isOpen) return null;
-
-                return (
-                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-overlay"
-                        onClick={onClose}>
-                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col"
-                            onClick={e => e.stopPropagation()}>
-                            {/* Header */}
-                            <div
-                                className="p-4 border-b flex justify-between items-center bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-t-xl">
-                                <h2 className="font-bold text-lg flex items-center gap-2">
-                                    <Icon name="Tag" size={20} /> Tag Manager
-                                </h2>
-                                <button onClick={onClose} className="p-1 hover:bg-white/20 rounded">
-                                    <Icon name="X" size={20} />
+            return (
+                <div className="relative" ref={dropdownRef}>
+                    <label className="text-xs text-gray-500 font-bold">{label}</label>
+                    <div className="w-full p-2 border rounded-lg min-h-[44px] flex flex-wrap gap-2 items-center cursor-text"
+                        onClick={() => inputRef.current?.focus()}>
+                        {/* Tag Pills */}
+                        {value.map((tag, index) => (
+                            <div key={index}
+                                className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
+                                <span>{tag}</span>
+                                <button type="button" onClick={(e) => { e.stopPropagation(); removeTag(index); }}
+                                    className="hover:bg-blue-200 rounded-full p-0.5 transition">
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                            d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
                                 </button>
                             </div>
+                        ))}
 
-                            {/* Search Input with Dropdown */}
-                            <div className="p-3 border-b bg-gray-50 relative">
-                                <input ref={inputRef} className="w-full p-3 border rounded-lg text-sm"
-                                    placeholder="Search tags or type new..." value={searchQuery} onChange={e => {
-                                        setSearchQuery(e.target.value); setShowDropdown(true);
-                                    }}
-                                    onFocus={() => setShowDropdown(true)}
-                                />
-                                {/* Dropdown */}
-                                {showDropdown && searchQuery.trim() && (
-                                    <div className="absolute left-3 right-3 bg-white border rounded-lg shadow-lg z-10 overflow-y-auto"
-                                        style={{ maxHeight: maxHeight, top: '100%' }}>
-                                        {filteredTags.map(({ tag, count }) => {
-                                            const color = getTagColor(tag);
-                                            const isSelected = selectedTags.includes(tag);
-                                            return (
-                                                <div key={tag} onClick={() => !isSelected && selectTag(tag)}
-                                                    className={`px-3 py-2 flex justify-between items-center cursor-pointer
+                        {/* Input Field */}
+                        <input ref={inputRef} type="text" className="flex-1 min-w-[120px] outline-none bg-transparent"
+                            placeholder={value.length === 0 ? placeholder : ""} value={input} onChange={(e) =>
+                                setInput(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            onFocus={() => input && setShowDropdown(suggestions.length > 0)}
+                        />
+                    </div>
+
+                    {/* Autocomplete Dropdown */}
+                    {showDropdown && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border rounded-lg shadow-lg overflow-y-auto"
+                            style={{ maxHeight: `${maxHeight}px` }}>
+                            {suggestions.map((suggestion, index) => (
+                                <div key={index} className={`px-3 py-2 cursor-pointer transition ${index === selectedIndex
+                                    ? 'bg-blue-100' : 'hover:bg-gray-100'}`} onClick={() => addTag(suggestion)}>
+                                    {suggestion}
+                                </div>
+                            ))}
+                            {/* Option to create new tag */}
+                            {input && !allTags.includes(input.trim()) && (
+                                <div className={`px-3 py-2 cursor-pointer border-t text-blue-600 font-medium transition
+                            ${selectedIndex === suggestions.length ? 'bg-blue-50' : 'hover:bg-gray-50'}`} onClick={() =>
+                                        addTag(input)}>
+                                    + Create "{input.trim()}"
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // TAG MANAGER - Colorful chip tokens with full CRUD operations
+        const TAG_COLORS = [
+            { bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-300' },
+            { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-300' },
+            { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300' },
+            { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300' },
+            { bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-300' },
+            { bg: 'bg-pink-100', text: 'text-pink-800', border: 'border-pink-300' },
+            { bg: 'bg-indigo-100', text: 'text-indigo-800', border: 'border-indigo-300' },
+            { bg: 'bg-orange-100', text: 'text-orange-800', border: 'border-orange-300' },
+        ];
+
+        const getTagColor = (tag) => {
+            const hash = tag.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+            return TAG_COLORS[hash % TAG_COLORS.length];
+        };
+
+        // Title Case formatter for consistent tag naming
+        const toTitleCase = (str) => {
+            return str.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+        };
+
+        const TagManagerModal = ({ isOpen, onClose, books, onTagsUpdated }) => {
+            const [allTags, setAllTags] = useState([]);
+            const [selectedTags, setSelectedTags] = useState([]);
+            const [searchQuery, setSearchQuery] = useState('');
+            const [showDropdown, setShowDropdown] = useState(false);
+            const [maxHeight, setMaxHeight] = useState(200);
+            const [renameTag, setRenameTag] = useState(null);
+            const [renameValue, setRenameValue] = useState('');
+            const [deleteTag, setDeleteTag] = useState(null);
+            const [deleteAction, setDeleteAction] = useState('remove');
+            const [replaceTarget, setReplaceTarget] = useState('');
+            const [showMergeModal, setShowMergeModal] = useState(false);
+            const [mergeTarget, setMergeTarget] = useState('');
+            const [mergeNewName, setMergeNewName] = useState('');
+            const [mergeMode, setMergeMode] = useState('existing');
+            const [isProcessing, setIsProcessing] = useState(false);
+            const [showBrowseAll, setShowBrowseAll] = useState(false);
+            const inputRef = useRef(null);
+
+            // Calculate all tags with counts
+            const refreshTags = useCallback(async () => {
+                const allBooks = await db.books.toArray();
+                const tagMap = new Map();
+                allBooks.forEach(book => {
+                    (book.tags || []).forEach(tag => {
+                        if (!tagMap.has(tag)) tagMap.set(tag, { count: 0, bookIds: [] });
+                        tagMap.get(tag).count++;
+                        tagMap.get(tag).bookIds.push(book.id);
+                    });
+                });
+                const tags = Array.from(tagMap.entries())
+                    .map(([tag, data]) => ({ tag, ...data }))
+                    .sort((a, b) => b.count - a.count);
+                setAllTags(tags);
+            }, []);
+
+            useEffect(() => {
+                if (isOpen) {
+                    refreshTags();
+                    setSearchQuery('');
+                    setSelectedTags([]);
+                }
+            }, [isOpen, refreshTags]);
+
+            // Keyboard-aware height calculation
+            const calculateMaxHeight = useCallback(() => {
+                if (!inputRef.current) return 200;
+                const rect = inputRef.current.getBoundingClientRect();
+                const viewportHeight = window.visualViewport?.height || window.innerHeight;
+                const estimatedKeyboardHeight = viewportHeight * 0.4;
+                const safeGap = 20;
+                return Math.max(100, Math.min(viewportHeight - rect.bottom - estimatedKeyboardHeight - safeGap, 250));
+            }, []);
+
+            useEffect(() => {
+                const updateHeight = () => setMaxHeight(calculateMaxHeight());
+                updateHeight();
+                window.visualViewport?.addEventListener('resize', updateHeight);
+                return () => window.visualViewport?.removeEventListener('resize', updateHeight);
+            }, [calculateMaxHeight]);
+
+            // Filter tags by search (search-first: show nothing if empty)
+            const filteredTags = useMemo(() => {
+                if (!searchQuery.trim()) return [];
+                const q = searchQuery.toLowerCase();
+                return allTags.filter(t => t.tag.toLowerCase().includes(q)).slice(0, 15);
+            }, [allTags, searchQuery]);
+
+            // Check if search query is a new tag (doesn't exist)
+            const isNewTag = useMemo(() => {
+                if (!searchQuery.trim()) return false;
+                const q = searchQuery.trim().toLowerCase();
+                return !allTags.some(t => t.tag.toLowerCase() === q);
+            }, [allTags, searchQuery]);
+
+            // Toggle tag selection (add as chip)
+            const selectTag = (tag) => {
+                if (!selectedTags.includes(tag)) {
+                    setSelectedTags([...selectedTags, tag]);
+                }
+                setSearchQuery('');
+                setShowDropdown(false);
+            };
+
+            // Remove chip
+            const removeTag = (tag) => {
+                setSelectedTags(selectedTags.filter(t => t !== tag));
+            };
+
+            // Create new tag and add to selection (with Title Case)
+            const handleCreateTag = () => {
+                const newTag = toTitleCase(searchQuery);
+                if (newTag && !selectedTags.some(t => t.toLowerCase() === newTag.toLowerCase())) {
+                    setSelectedTags([...selectedTags, newTag]);
+                }
+                setSearchQuery('');
+                setShowDropdown(false);
+            };
+
+            // Rename tag
+            const handleRename = async () => {
+                if (!renameTag || !renameValue.trim()) return;
+                setIsProcessing(true);
+                try {
+                    const booksWithTag = await db.books.where('tags').equals(renameTag).toArray();
+                    for (const book of booksWithTag) {
+                        book.tags = book.tags.map(t => t === renameTag ? renameValue.trim() : t);
+                        await db.books.put(book);
+                    }
+                    alert(`Renamed "${renameTag}" → "${renameValue.trim()}" in ${booksWithTag.length} books`);
+                    onClose();
+                    if (onTagsUpdated) onTagsUpdated();
+                } finally {
+                    setIsProcessing(false);
+                }
+            };
+
+            // Delete tag with options
+            const handleDelete = async () => {
+                if (!deleteTag) return;
+                setIsProcessing(true);
+                try {
+                    const booksWithTag = await db.books.where('tags').equals(deleteTag).toArray();
+                    for (const book of booksWithTag) {
+                        if (deleteAction === 'remove') {
+                            book.tags = book.tags.filter(t => t !== deleteTag);
+                        } else if (deleteAction === 'replaceExisting' && replaceTarget) {
+                            book.tags = book.tags.map(t => t === deleteTag ? replaceTarget : t);
+                            book.tags = [...new Set(book.tags)];
+                        } else if (deleteAction === 'replaceNew' && replaceTarget.trim()) {
+                            book.tags = book.tags.map(t => t === deleteTag ? replaceTarget.trim() : t);
+                        }
+                        await db.books.put(book);
+                    }
+                    const actionText = deleteAction === 'remove' ? 'removed from' : 'replaced in';
+                    alert(`"${deleteTag}" ${actionText} ${booksWithTag.length} books`);
+                    onClose();
+                    if (onTagsUpdated) onTagsUpdated();
+                } finally {
+                    setIsProcessing(false);
+                }
+            };
+
+            // Merge multiple tags
+            const handleMerge = async () => {
+                if (selectedTags.length < 2) return; const targetName = mergeMode === 'existing' ? mergeTarget :
+                    mergeNewName.trim(); if (!targetName) return; setIsProcessing(true); try {
+                        let totalBooks = 0; for
+                            (const sourceTag of selectedTags) {
+                            if (sourceTag === targetName) continue; const booksWithTag = await
+                                db.books.where('tags').equals(sourceTag).toArray(); for (const book of booksWithTag) {
+                                    book.tags = book.tags.map(t => t === sourceTag ? targetName : t);
+                                    book.tags = [...new Set(book.tags)];
+                                    await db.books.put(book);
+                                }
+                            totalBooks += booksWithTag.length;
+                        }
+                        alert(`Merged ${selectedTags.length} tags into "${targetName}" (${totalBooks} books updated)`);
+                        onClose();
+                        if (onTagsUpdated) onTagsUpdated();
+                    } finally {
+                    setIsProcessing(false);
+                }
+            };
+
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-overlay"
+                    onClick={onClose}>
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col"
+                        onClick={e => e.stopPropagation()}>
+                        {/* Header */}
+                        <div
+                            className="p-4 border-b flex justify-between items-center bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-t-xl">
+                            <h2 className="font-bold text-lg flex items-center gap-2">
+                                <Icon name="Tag" size={20} /> Tag Manager
+                            </h2>
+                            <button onClick={onClose} className="p-1 hover:bg-white/20 rounded">
+                                <Icon name="X" size={20} />
+                            </button>
+                        </div>
+
+                        {/* Search Input with Dropdown */}
+                        <div className="p-3 border-b bg-gray-50 relative">
+                            <input ref={inputRef} className="w-full p-3 border rounded-lg text-sm"
+                                placeholder="Search tags or type new..." value={searchQuery} onChange={e => {
+                                    setSearchQuery(e.target.value); setShowDropdown(true);
+                                }}
+                                onFocus={() => setShowDropdown(true)}
+                            />
+                            {/* Dropdown */}
+                            {showDropdown && searchQuery.trim() && (
+                                <div className="absolute left-3 right-3 bg-white border rounded-lg shadow-lg z-10 overflow-y-auto"
+                                    style={{ maxHeight: maxHeight, top: '100%' }}>
+                                    {filteredTags.map(({ tag, count }) => {
+                                        const color = getTagColor(tag);
+                                        const isSelected = selectedTags.includes(tag);
+                                        return (
+                                            <div key={tag} onClick={() => !isSelected && selectTag(tag)}
+                                                className={`px-3 py-2 flex justify-between items-center cursor-pointer
                                         hover:bg-gray-100
                                         ${isSelected ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                >
-                                                    <span className={`px-2 py-0.5 rounded-full text-sm ${color.bg} ${color.text}`}>
-                                                        {tag}
-                                                    </span>
-                                                    <span className="text-xs text-gray-400">{count} books</span>
-                                                </div>
-                                            );
-                                        })}
-                                        {filteredTags.length === 0 && !isNewTag && (
-                                            <div className="px-3 py-2 text-gray-400 text-sm italic">No matching tags</div>
-                                        )}
-                                        {isNewTag && (
-                                            <div onClick={handleCreateTag}
-                                                className="px-3 py-2 flex items-center gap-2 cursor-pointer hover:bg-green-50 text-green-700 border-t">
-                                                <Icon name="Plus" size={16} />
-                                                <span>Create "<strong>{searchQuery.trim()}</strong>"</span>
+                                            >
+                                                <span className={`px-2 py-0.5 rounded-full text-sm ${color.bg} ${color.text}`}>
+                                                    {tag}
+                                                </span>
+                                                <span className="text-xs text-gray-400">{count} books</span>
                                             </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Selected Tags (Chips) */}
-                            <div className="p-3 border-b flex flex-wrap gap-2 min-h-[60px]">
-                                {selectedTags.length === 0 ? (
-                                    <p className="text-gray-400 text-sm italic">Type to search and select tags...</p>
-                                ) : (
-                                    selectedTags.map(tag => {
-                                        const color = getTagColor(tag);
-                                        const tagData = allTags.find(t => t.tag === tag);
-                                        const isNew = !tagData;
-                                        return (
-                                            <span key={tag} className={`px-3 py-1.5 rounded-full text-sm font-medium flex
-                                    items-center gap-2 border-2 ${isNew ? 'bg-green-100 text-green-800 border-green-300'
-                                                    : `${color.bg} ${color.text} ${color.border}`}`}>
-                                                {tag} {tagData && <span className="opacity-60">({tagData.count})</span>}
-                                                {isNew && <span
-                                                    className="text-[10px] bg-green-500 text-white px-1 rounded">NEW</span>}
-                                                <button onClick={() => removeTag(tag)} className="hover:text-red-600 ml-1">×</button>
-                                            </span>
                                         );
-                                    })
-                                )}
-                            </div>
-
-                            {/* Action Buttons */}
-                            <div className="p-3 bg-gray-100 flex flex-wrap gap-2">
-                                {selectedTags.length === 1 && allTags.find(t => t.tag === selectedTags[0]) && (
-                                    <>
-                                        <button onClick={() => {
-                                            setRenameTag(selectedTags[0]);
-                                            setRenameValue(selectedTags[0]);
-                                        }}
-                                            className="flex-1 py-2 bg-blue-100 text-blue-800 rounded-lg text-sm font-bold
-                                        flex items-center justify-center gap-1"
-                                        >
-                                            <Icon name="Edit3" size={14} /> Rename
-                                        </button>
-                                        <button onClick={() => setDeleteTag(selectedTags[0])}
-                                            className="flex-1 py-2 bg-red-100 text-red-800 rounded-lg text-sm font-bold flex
-                                        items-center justify-center gap-1"
-                                        >
-                                            <Icon name="Trash2" size={14} /> Delete
-                                        </button>
-                                    </>
-                                )}
-                                {selectedTags.length >= 2 && (
-                                    <button onClick={() => setShowMergeModal(true)}
-                                        className="flex-1 py-2 bg-purple-100 text-purple-800 rounded-lg text-sm font-bold
-                                    flex items-center justify-center gap-1"
-                                    >
-                                        <Icon name="Merge" size={14} /> Merge {selectedTags.length} Tags
-                                    </button>
-                                )}
-                                {selectedTags.length > 0 && (
-                                    <button onClick={() => setSelectedTags([])}
-                                        className="py-2 px-4 bg-gray-200 rounded-lg text-sm"
-                                    >
-                                        Clear
-                                    </button>
-                                )}
-                                {selectedTags.length === 0 && (
-                                    <p className="text-xs text-gray-400 italic w-full text-center">Select tags to see
-                                        actions</p>
-                                )}
-                            </div>
-
-                            {/* Quick Stats + Browse All */}
-                            <div className="p-2 bg-gray-50 border-t flex justify-between items-center">
-                                <p className="text-xs text-gray-400">{allTags.length} tags in library</p>
-                                <button onClick={() => setShowBrowseAll(true)}
-                                    className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold
-                                    hover:bg-blue-200"
-                                >
-                                    Browse All
-                                </button>
-                            </div>
-
-                            {/* Browse All Tags Modal */}
-                            {showBrowseAll && (
-                                <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4 z-20">
-                                    <div
-                                        className="bg-white rounded-xl w-full max-w-md max-h-[70vh] flex flex-col shadow-xl">
-                                        <div
-                                            className="p-3 border-b flex justify-between items-center bg-blue-500 text-white rounded-t-xl">
-                                            <h3 className="font-bold">📋 All Tags ({allTags.length})</h3>
-                                            <button onClick={() => setShowBrowseAll(false)} className="hover:bg-white/20 p-1
-                                            rounded">
-                                                <Icon name="X" size={18} />
-                                            </button>
+                                    })}
+                                    {filteredTags.length === 0 && !isNewTag && (
+                                        <div className="px-3 py-2 text-gray-400 text-sm italic">No matching tags</div>
+                                    )}
+                                    {isNewTag && (
+                                        <div onClick={handleCreateTag}
+                                            className="px-3 py-2 flex items-center gap-2 cursor-pointer hover:bg-green-50 text-green-700 border-t">
+                                            <Icon name="Plus" size={16} />
+                                            <span>Create "<strong>{searchQuery.trim()}</strong>"</span>
                                         </div>
-                                        <div className="flex-1 overflow-y-auto p-3">
-                                            <div className="flex flex-wrap gap-2">
-                                                {allTags.map(({ tag, count }) => {
-                                                    const color = getTagColor(tag);
-                                                    const isSelected = selectedTags.includes(tag);
-                                                    return (
-                                                        <button key={tag} onClick={() => {
-                                                            selectTag(tag); setShowBrowseAll(false);
-                                                        }}
-                                                            className={`px-3 py-1.5 rounded-full text-sm font-medium border-2
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Selected Tags (Chips) */}
+                        <div className="p-3 border-b flex flex-wrap gap-2 min-h-[60px]">
+                            {selectedTags.length === 0 ? (
+                                <p className="text-gray-400 text-sm italic">Type to search and select tags...</p>
+                            ) : (
+                                selectedTags.map(tag => {
+                                    const color = getTagColor(tag);
+                                    const tagData = allTags.find(t => t.tag === tag);
+                                    const isNew = !tagData;
+                                    return (
+                                        <span key={tag} className={`px-3 py-1.5 rounded-full text-sm font-medium flex
+                                    items-center gap-2 border-2 ${isNew ? 'bg-green-100 text-green-800 border-green-300'
+                                                : `${color.bg} ${color.text} ${color.border}`}`}>
+                                            {tag} {tagData && <span className="opacity-60">({tagData.count})</span>}
+                                            {isNew && <span
+                                                className="text-[10px] bg-green-500 text-white px-1 rounded">NEW</span>}
+                                            <button onClick={() => removeTag(tag)} className="hover:text-red-600 ml-1">×</button>
+                                        </span>
+                                    );
+                                })
+                            )}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="p-3 bg-gray-100 flex flex-wrap gap-2">
+                            {selectedTags.length === 1 && allTags.find(t => t.tag === selectedTags[0]) && (
+                                <>
+                                    <button onClick={() => {
+                                        setRenameTag(selectedTags[0]);
+                                        setRenameValue(selectedTags[0]);
+                                    }}
+                                        className="flex-1 py-2 bg-blue-100 text-blue-800 rounded-lg text-sm font-bold
+                                        flex items-center justify-center gap-1"
+                                    >
+                                        <Icon name="Edit3" size={14} /> Rename
+                                    </button>
+                                    <button onClick={() => setDeleteTag(selectedTags[0])}
+                                        className="flex-1 py-2 bg-red-100 text-red-800 rounded-lg text-sm font-bold flex
+                                        items-center justify-center gap-1"
+                                    >
+                                        <Icon name="Trash2" size={14} /> Delete
+                                    </button>
+                                </>
+                            )}
+                            {selectedTags.length >= 2 && (
+                                <button onClick={() => setShowMergeModal(true)}
+                                    className="flex-1 py-2 bg-purple-100 text-purple-800 rounded-lg text-sm font-bold
+                                    flex items-center justify-center gap-1"
+                                >
+                                    <Icon name="Merge" size={14} /> Merge {selectedTags.length} Tags
+                                </button>
+                            )}
+                            {selectedTags.length > 0 && (
+                                <button onClick={() => setSelectedTags([])}
+                                    className="py-2 px-4 bg-gray-200 rounded-lg text-sm"
+                                >
+                                    Clear
+                                </button>
+                            )}
+                            {selectedTags.length === 0 && (
+                                <p className="text-xs text-gray-400 italic w-full text-center">Select tags to see
+                                    actions</p>
+                            )}
+                        </div>
+
+                        {/* Quick Stats + Browse All */}
+                        <div className="p-2 bg-gray-50 border-t flex justify-between items-center">
+                            <p className="text-xs text-gray-400">{allTags.length} tags in library</p>
+                            <button onClick={() => setShowBrowseAll(true)}
+                                className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold
+                                    hover:bg-blue-200"
+                            >
+                                Browse All
+                            </button>
+                        </div>
+
+                        {/* Browse All Tags Modal */}
+                        {showBrowseAll && (
+                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4 z-20">
+                                <div
+                                    className="bg-white rounded-xl w-full max-w-md max-h-[70vh] flex flex-col shadow-xl">
+                                    <div
+                                        className="p-3 border-b flex justify-between items-center bg-blue-500 text-white rounded-t-xl">
+                                        <h3 className="font-bold">📋 All Tags ({allTags.length})</h3>
+                                        <button onClick={() => setShowBrowseAll(false)} className="hover:bg-white/20 p-1
+                                            rounded">
+                                            <Icon name="X" size={18} />
+                                        </button>
+                                    </div>
+                                    <div className="flex-1 overflow-y-auto p-3">
+                                        <div className="flex flex-wrap gap-2">
+                                            {allTags.map(({ tag, count }) => {
+                                                const color = getTagColor(tag);
+                                                const isSelected = selectedTags.includes(tag);
+                                                return (
+                                                    <button key={tag} onClick={() => {
+                                                        selectTag(tag); setShowBrowseAll(false);
+                                                    }}
+                                                        className={`px-3 py-1.5 rounded-full text-sm font-medium border-2
                                                 transition-all
                                                 ${color.bg} ${color.text} ${color.border}
                                                 ${isSelected ? 'ring-2 ring-offset-1 ring-blue-500' : ''}
                                                 hover:shadow-md active:scale-95`}
-                                                        >
-                                                            {tag} <span className="opacity-60">({count})</span>
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
+                                                    >
+                                                        {tag} <span className="opacity-60">({count})</span>
+                                                    </button>
+                                                );
+                                            })}
                                         </div>
-                                        <div className="p-2 border-t text-center">
-                                            <button onClick={() => setShowBrowseAll(false)} className="text-sm
+                                    </div>
+                                    <div className="p-2 border-t text-center">
+                                        <button onClick={() => setShowBrowseAll(false)} className="text-sm
                                             text-gray-500">Close</button>
-                                        </div>
                                     </div>
                                 </div>
-                            )}
+                            </div>
+                        )}
 
-                            {/* Rename Modal */}
-                            {renameTag && (
-                                <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4 z-20">
-                                    <div className="bg-white rounded-xl p-4 w-full max-w-sm shadow-xl">
-                                        <h3 className="font-bold text-lg mb-3">Rename "{renameTag}"</h3>
-                                        <input className="w-full p-3 border rounded-lg mb-3" value={renameValue}
-                                            onChange={e => setRenameValue(e.target.value)}
-                                            autoFocus
-                                        />
-                                        <div className="flex gap-2">
-                                            <button onClick={handleRename} disabled={isProcessing}
-                                                className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-bold">{isProcessing
-                                                    ? 'Renaming...' : 'Rename'}</button>
-                                            <button onClick={() => setRenameTag(null)} className="flex-1 py-2 bg-gray-200
+                        {/* Rename Modal */}
+                        {renameTag && (
+                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4 z-20">
+                                <div className="bg-white rounded-xl p-4 w-full max-w-sm shadow-xl">
+                                    <h3 className="font-bold text-lg mb-3">Rename "{renameTag}"</h3>
+                                    <input className="w-full p-3 border rounded-lg mb-3" value={renameValue}
+                                        onChange={e => setRenameValue(e.target.value)}
+                                        autoFocus
+                                    />
+                                    <div className="flex gap-2">
+                                        <button onClick={handleRename} disabled={isProcessing}
+                                            className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-bold">{isProcessing
+                                                ? 'Renaming...' : 'Rename'}</button>
+                                        <button onClick={() => setRenameTag(null)} className="flex-1 py-2 bg-gray-200
                                             rounded-lg">Cancel</button>
-                                        </div>
                                     </div>
                                 </div>
-                            )}
+                            </div>
+                        )}
 
-                            {/* Delete Modal */}
-                            {deleteTag && (
-                                <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4 z-20">
-                                    <div className="bg-white rounded-xl p-4 w-full max-w-sm shadow-xl">
-                                        <h3 className="font-bold text-lg mb-2">Delete "{deleteTag}"?</h3>
-                                        <p className="text-sm text-gray-500 mb-3">This tag is used by {allTags.find(t =>
-                                            t.tag === deleteTag)?.count || 0} books.</p>
-                                        <div className="space-y-2 mb-4">
-                                            <label className="flex items-center gap-2 text-sm">
-                                                <input type="radio" checked={deleteAction === 'remove'} onChange={() =>
-                                                    setDeleteAction('remove')} />
-                                                Remove tag from all books
-                                            </label>
-                                            <label className="flex items-center gap-2 text-sm">
-                                                <input type="radio" checked={deleteAction === 'replaceExisting'}
-                                                    onChange={() => setDeleteAction('replaceExisting')} />
-                                                Replace with existing tag:
-                                            </label>
-                                            {deleteAction === 'replaceExisting' && (
-                                                <select className="w-full p-2 border rounded ml-6" value={replaceTarget}
-                                                    onChange={e => setReplaceTarget(e.target.value)}>
-                                                    <option value="">Select tag...</option>
-                                                    {allTags.filter(t => t.tag !== deleteTag).map(t => (
-                                                        <option key={t.tag} value={t.tag}>{t.tag} ({t.count})</option>
-                                                    ))}
-                                                </select>
-                                            )}
-                                            <label className="flex items-center gap-2 text-sm">
-                                                <input type="radio" checked={deleteAction === 'replaceNew'} onChange={() =>
-                                                    setDeleteAction('replaceNew')} />
-                                                Replace with new tag:
-                                            </label>
-                                            {deleteAction === 'replaceNew' && (
-                                                <input className="w-full p-2 border rounded ml-6" placeholder="New tag name..."
-                                                    value={replaceTarget} onChange={e => setReplaceTarget(e.target.value)} />
-                                            )}
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <button onClick={handleDelete} disabled={isProcessing}
-                                                className="flex-1 py-2 bg-red-600 text-white rounded-lg font-bold">{isProcessing
-                                                    ? 'Deleting...' : 'Delete'}</button>
-                                            <button onClick={() => setDeleteTag(null)} className="flex-1 py-2 bg-gray-200
+                        {/* Delete Modal */}
+                        {deleteTag && (
+                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4 z-20">
+                                <div className="bg-white rounded-xl p-4 w-full max-w-sm shadow-xl">
+                                    <h3 className="font-bold text-lg mb-2">Delete "{deleteTag}"?</h3>
+                                    <p className="text-sm text-gray-500 mb-3">This tag is used by {allTags.find(t =>
+                                        t.tag === deleteTag)?.count || 0} books.</p>
+                                    <div className="space-y-2 mb-4">
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input type="radio" checked={deleteAction === 'remove'} onChange={() =>
+                                                setDeleteAction('remove')} />
+                                            Remove tag from all books
+                                        </label>
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input type="radio" checked={deleteAction === 'replaceExisting'}
+                                                onChange={() => setDeleteAction('replaceExisting')} />
+                                            Replace with existing tag:
+                                        </label>
+                                        {deleteAction === 'replaceExisting' && (
+                                            <select className="w-full p-2 border rounded ml-6" value={replaceTarget}
+                                                onChange={e => setReplaceTarget(e.target.value)}>
+                                                <option value="">Select tag...</option>
+                                                {allTags.filter(t => t.tag !== deleteTag).map(t => (
+                                                    <option key={t.tag} value={t.tag}>{t.tag} ({t.count})</option>
+                                                ))}
+                                            </select>
+                                        )}
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input type="radio" checked={deleteAction === 'replaceNew'} onChange={() =>
+                                                setDeleteAction('replaceNew')} />
+                                            Replace with new tag:
+                                        </label>
+                                        {deleteAction === 'replaceNew' && (
+                                            <input className="w-full p-2 border rounded ml-6" placeholder="New tag name..."
+                                                value={replaceTarget} onChange={e => setReplaceTarget(e.target.value)} />
+                                        )}
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={handleDelete} disabled={isProcessing}
+                                            className="flex-1 py-2 bg-red-600 text-white rounded-lg font-bold">{isProcessing
+                                                ? 'Deleting...' : 'Delete'}</button>
+                                        <button onClick={() => setDeleteTag(null)} className="flex-1 py-2 bg-gray-200
                                             rounded-lg">Cancel</button>
-                                        </div>
                                     </div>
                                 </div>
-                            )}
+                            </div>
+                        )}
 
-                            {/* Merge Modal */}
-                            {showMergeModal && (
-                                <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4 z-20">
-                                    <div className="bg-white rounded-xl p-4 w-full max-w-sm shadow-xl">
-                                        <h3 className="font-bold text-lg mb-2">Merge {selectedTags.length} Tags</h3>
-                                        <p className="text-sm text-gray-500 mb-3">Tags: {selectedTags.join(', ')}</p>
-                                        <div className="space-y-2 mb-4">
-                                            <label className="flex items-center gap-2 text-sm">
-                                                <input type="radio" checked={mergeMode === 'existing'} onChange={() =>
-                                                    setMergeMode('existing')} />
-                                                Merge into one of these:
-                                            </label>
-                                            {mergeMode === 'existing' && (
-                                                <select className="w-full p-2 border rounded ml-6" value={mergeTarget}
-                                                    onChange={e => setMergeTarget(e.target.value)}>
-                                                    <option value="">Select tag...</option>
-                                                    {selectedTags.filter(t => allTags.find(at => at.tag === t)).map(t => (
-                                                        <option key={t} value={t}>{t}</option>
-                                                    ))}
-                                                </select>
-                                            )}
-                                            <label className="flex items-center gap-2 text-sm">
-                                                <input type="radio" checked={mergeMode === 'new'} onChange={() =>
-                                                    setMergeMode('new')} />
-                                                Merge into new tag:
-                                            </label>
-                                            {mergeMode === 'new' && (
-                                                <input className="w-full p-2 border rounded ml-6" placeholder="New tag name..."
-                                                    value={mergeNewName} onChange={e => setMergeNewName(e.target.value)} />
-                                            )}
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <button onClick={handleMerge} disabled={isProcessing}
-                                                className="flex-1 py-2 bg-purple-600 text-white rounded-lg font-bold">{isProcessing
-                                                    ? 'Merging...' : 'Merge'}</button>
-                                            <button onClick={() => setShowMergeModal(false)} className="flex-1 py-2
+                        {/* Merge Modal */}
+                        {showMergeModal && (
+                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4 z-20">
+                                <div className="bg-white rounded-xl p-4 w-full max-w-sm shadow-xl">
+                                    <h3 className="font-bold text-lg mb-2">Merge {selectedTags.length} Tags</h3>
+                                    <p className="text-sm text-gray-500 mb-3">Tags: {selectedTags.join(', ')}</p>
+                                    <div className="space-y-2 mb-4">
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input type="radio" checked={mergeMode === 'existing'} onChange={() =>
+                                                setMergeMode('existing')} />
+                                            Merge into one of these:
+                                        </label>
+                                        {mergeMode === 'existing' && (
+                                            <select className="w-full p-2 border rounded ml-6" value={mergeTarget}
+                                                onChange={e => setMergeTarget(e.target.value)}>
+                                                <option value="">Select tag...</option>
+                                                {selectedTags.filter(t => allTags.find(at => at.tag === t)).map(t => (
+                                                    <option key={t} value={t}>{t}</option>
+                                                ))}
+                                            </select>
+                                        )}
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input type="radio" checked={mergeMode === 'new'} onChange={() =>
+                                                setMergeMode('new')} />
+                                            Merge into new tag:
+                                        </label>
+                                        {mergeMode === 'new' && (
+                                            <input className="w-full p-2 border rounded ml-6" placeholder="New tag name..."
+                                                value={mergeNewName} onChange={e => setMergeNewName(e.target.value)} />
+                                        )}
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={handleMerge} disabled={isProcessing}
+                                            className="flex-1 py-2 bg-purple-600 text-white rounded-lg font-bold">{isProcessing
+                                                ? 'Merging...' : 'Merge'}</button>
+                                        <button onClick={() => setShowMergeModal(false)} className="flex-1 py-2
                                             bg-gray-200 rounded-lg">Cancel</button>
-                                        </div>
                                     </div>
                                 </div>
-                            )}
-                        </div>
-                    </div>
-                );
-            };
-
-            // AUTOCOMPLETE INPUT (For Author, Building, Owner, Condition)
-            // Supports two modes:
-            // 1. allBooks + field: extracts suggestions from book data
-            // 2. suggestions: direct array of suggestions (for SlicerSearch)
-            const AutocompleteInput = ({ label, value = '', onChange, allBooks = [], field, placeholder = '',
-                suggestions: directSuggestions }) => {
-                const [showDropdown, setShowDropdown] = useState(false);
-                const [filteredSuggestions, setFilteredSuggestions] = useState([]);
-                const [selectedIndex, setSelectedIndex] = useState(-1);
-                const [maxHeight, setMaxHeight] = useState(150);
-                const inputRef = useRef(null);
-                const dropdownRef = useRef(null);
-
-                // Handle onChange - always pass event-style object for form field compatibility
-                const handleChange = (val) => {
-                    if (typeof onChange === 'function') {
-                        onChange({ target: { value: val } });
-                    }
-                };
-
-                // Calculate dropdown height based on viewport
-                const calculateMaxHeight = useCallback(() => {
-                    if (!inputRef.current) return 150;
-                    const rect = inputRef.current.getBoundingClientRect();
-                    const viewportHeight = window.visualViewport?.height || window.innerHeight;
-                    const estimatedKeyboardHeight = viewportHeight * 0.4;
-                    const safeGap = 20;
-                    return Math.max(80, Math.min(viewportHeight - rect.bottom - estimatedKeyboardHeight - safeGap,
-                        200));
-                }, []);
-
-                // Recalculate height on viewport changes
-                useEffect(() => {
-                    const updateHeight = () => setMaxHeight(calculateMaxHeight());
-                    updateHeight();
-                    window.visualViewport?.addEventListener('resize', updateHeight);
-                    return () => window.visualViewport?.removeEventListener('resize', updateHeight);
-                }, [calculateMaxHeight]);
-
-                // Extract unique values for this field from all books (if not using directSuggestions)
-                const allValues = useMemo(() => {
-                    if (directSuggestions && directSuggestions.length > 0) {
-                        return directSuggestions;
-                    }
-                    const valueSet = new Set();
-                    allBooks.forEach(book => {
-                        const fieldValue = book[field];
-                        if (fieldValue && typeof fieldValue === 'string' && fieldValue.trim()) {
-                            valueSet.add(fieldValue.trim());
-                        }
-                    });
-                    return Array.from(valueSet).sort();
-                }, [allBooks, field, directSuggestions]);
-
-                // Filter suggestions based on input
-                useEffect(() => {
-                    if (!value || value.length < 1) { setFilteredSuggestions([]); setShowDropdown(false); return; }
-                    const filtered = allValues.filter(val =>
-                        String(val).toLowerCase().includes(String(value).toLowerCase()) &&
-                        String(val).toLowerCase() !== String(value).toLowerCase()
-                    );
-                    setFilteredSuggestions(filtered.slice(0, 8));
-                    setShowDropdown(filtered.length > 0);
-                    setSelectedIndex(-1);
-                }, [value, allValues]);
-
-                // Select suggestion
-                const selectSuggestion = (suggestion) => {
-                    handleChange(suggestion);
-                    setShowDropdown(false);
-                    setSelectedIndex(-1);
-                };
-
-                // Keyboard navigation
-                const handleKeyDown = (e) => {
-                    if (!showDropdown) return;
-
-                    if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        setSelectedIndex(prev =>
-                            prev < filteredSuggestions.length - 1 ? prev + 1 : prev);
-                    } else if (e.key === 'ArrowUp') {
-                        e.preventDefault(); setSelectedIndex(prev => prev > 0 ? prev - 1 : -1);
-                    } else if (e.key === 'Enter' && selectedIndex >= 0) {
-                        e.preventDefault();
-                        selectSuggestion(filteredSuggestions[selectedIndex]);
-                    } else if (e.key === 'Escape') {
-                        setShowDropdown(false);
-                        setSelectedIndex(-1);
-                    }
-                };
-
-                // Click outside to close
-                useEffect(() => {
-                    const handleClickOutside = (e) => {
-                        if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-                            setShowDropdown(false);
-                        }
-                    };
-                    document.addEventListener('mousedown', handleClickOutside);
-                    return () => document.removeEventListener('mousedown', handleClickOutside);
-                }, []);
-
-                return (
-                    <div className="relative flex-1" ref={dropdownRef}>
-                        {label && <label className="text-xs text-gray-500 font-bold">{label}</label>}
-                        <input ref={inputRef} type="text" className="w-full p-3 border rounded-lg"
-                            placeholder={placeholder} value={value} onChange={(e) =>
-                                handleChange(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            onFocus={() => value && setShowDropdown(filteredSuggestions.length > 0)}
-                        />
-
-                        {/* Autocomplete Dropdown */}
-                        {showDropdown && filteredSuggestions.length > 0 && (
-                            <div className="absolute z-50 w-full mt-1 bg-white border rounded-lg shadow-lg overflow-y-auto"
-                                style={{ maxHeight: `${maxHeight}px` }}>
-                                {filteredSuggestions.map((suggestion, index) => (
-                                    <div key={index} className={`px-3 py-2 cursor-pointer transition
-                                        ${index === selectedIndex ? 'bg-blue-100' : 'hover:bg-gray-100'}`} onClick={() =>
-                                            selectSuggestion(suggestion)}
-                                    >
-                                        {suggestion}
-                                    </div>
-                                ))}
                             </div>
                         )}
                     </div>
-                );
+                </div>
+            );
+        };
+
+        // AUTOCOMPLETE INPUT (For Author, Building, Owner, Condition)
+        // Supports two modes:
+        // 1. allBooks + field: extracts suggestions from book data
+        // 2. suggestions: direct array of suggestions (for SlicerSearch)
+        const AutocompleteInput = ({ label, value = '', onChange, allBooks = [], field, placeholder = '',
+            suggestions: directSuggestions }) => {
+            const [showDropdown, setShowDropdown] = useState(false);
+            const [filteredSuggestions, setFilteredSuggestions] = useState([]);
+            const [selectedIndex, setSelectedIndex] = useState(-1);
+            const [maxHeight, setMaxHeight] = useState(150);
+            const inputRef = useRef(null);
+            const dropdownRef = useRef(null);
+
+            // Handle onChange - always pass event-style object for form field compatibility
+            const handleChange = (val) => {
+                if (typeof onChange === 'function') {
+                    onChange({ target: { value: val } });
+                }
             };
 
-            // BARCODE SCANNER
-            // BARCODE SCANNER - Uses Capacitor MLKit (native) with Html5Qrcode fallback (web)
-            const BarcodeScanner = ({ onDetected, onClose }) => {
-                const [online, setOnline] = useState(navigator.onLine);
-                const [scanning, setScanning] = useState(false);
-                const [error, setError] = useState(null);
-                const [useWebFallback, setUseWebFallback] = useState(false);
+            // Calculate dropdown height based on viewport
+            const calculateMaxHeight = useCallback(() => {
+                if (!inputRef.current) return 150;
+                const rect = inputRef.current.getBoundingClientRect();
+                const viewportHeight = window.visualViewport?.height || window.innerHeight;
+                const estimatedKeyboardHeight = viewportHeight * 0.4;
+                const safeGap = 20;
+                return Math.max(80, Math.min(viewportHeight - rect.bottom - estimatedKeyboardHeight - safeGap,
+                    200));
+            }, []);
 
-                useEffect(() => {
-                    window.addEventListener('online', () => setOnline(true));
-                    window.addEventListener('offline', () => setOnline(false));
+            // Recalculate height on viewport changes
+            useEffect(() => {
+                const updateHeight = () => setMaxHeight(calculateMaxHeight());
+                updateHeight();
+                window.visualViewport?.addEventListener('resize', updateHeight);
+                return () => window.visualViewport?.removeEventListener('resize', updateHeight);
+            }, [calculateMaxHeight]);
 
-                    const startScanning = async () => {
-                        try {
-                            const plugins = window.Capacitor?.Plugins || {};
-                            const pluginNames = Object.keys(plugins);
+            // Extract unique values for this field from all books (if not using directSuggestions)
+            const allValues = useMemo(() => {
+                if (directSuggestions && directSuggestions.length > 0) {
+                    return directSuggestions;
+                }
+                const valueSet = new Set();
+                allBooks.forEach(book => {
+                    const fieldValue = book[field];
+                    if (fieldValue && typeof fieldValue === 'string' && fieldValue.trim()) {
+                        valueSet.add(fieldValue.trim());
+                    }
+                });
+                return Array.from(valueSet).sort();
+            }, [allBooks, field, directSuggestions]);
 
-                            // DEBUG: Log all available Capacitor plugins to console
-                            console.log('Available Capacitor Plugins:', pluginNames);
+            // Filter suggestions based on input
+            useEffect(() => {
+                if (!value || value.length < 1) { setFilteredSuggestions([]); setShowDropdown(false); return; }
+                const filtered = allValues.filter(val =>
+                    String(val).toLowerCase().includes(String(value).toLowerCase()) &&
+                    String(val).toLowerCase() !== String(value).toLowerCase()
+                );
+                setFilteredSuggestions(filtered.slice(0, 8));
+                setShowDropdown(filtered.length > 0);
+                setSelectedIndex(-1);
+            }, [value, allValues]);
 
-                            // Try multiple possible plugin names (MLKit barcode scanner might register differently)
-                            const Scanner = plugins.BarcodeScanner || plugins.BarcodeScanning ||
-                                plugins.MlkitBarcodeScanning || plugins.CapacitorMlkitBarcodeScanning;
+            // Select suggestion
+            const selectSuggestion = (suggestion) => {
+                handleChange(suggestion);
+                setShowDropdown(false);
+                setSelectedIndex(-1);
+            };
 
-                            // VISIBLE DEBUG: Show alert with plugin info (REMOVE AFTER DEBUGGING)
-                            // alert(`DEBUG - Capacitor Plugins Found:\n\n${pluginNames.join(', ') || 'NONE'}\n\nBarcode
-                            Scanner: ${ Scanner ? 'FOUND ✓' : 'NOT FOUND ✗' } `);
+            // Keyboard navigation
+            const handleKeyDown = (e) => {
+                if (!showDropdown) return;
+
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSelectedIndex(prev =>
+                        prev < filteredSuggestions.length - 1 ? prev + 1 : prev);
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault(); setSelectedIndex(prev => prev > 0 ? prev - 1 : -1);
+                } else if (e.key === 'Enter' && selectedIndex >= 0) {
+                    e.preventDefault();
+                    selectSuggestion(filteredSuggestions[selectedIndex]);
+                } else if (e.key === 'Escape') {
+                    setShowDropdown(false);
+                    setSelectedIndex(-1);
+                }
+            };
+
+            // Click outside to close
+            useEffect(() => {
+                const handleClickOutside = (e) => {
+                    if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+                        setShowDropdown(false);
+                    }
+                };
+                document.addEventListener('mousedown', handleClickOutside);
+                return () => document.removeEventListener('mousedown', handleClickOutside);
+            }, []);
+
+            return (
+                <div className="relative flex-1" ref={dropdownRef}>
+                    {label && <label className="text-xs text-gray-500 font-bold">{label}</label>}
+                    <input ref={inputRef} type="text" className="w-full p-3 border rounded-lg"
+                        placeholder={placeholder} value={value} onChange={(e) =>
+                            handleChange(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        onFocus={() => value && setShowDropdown(filteredSuggestions.length > 0)}
+                    />
+
+                    {/* Autocomplete Dropdown */}
+                    {showDropdown && filteredSuggestions.length > 0 && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border rounded-lg shadow-lg overflow-y-auto"
+                            style={{ maxHeight: `${maxHeight}px` }}>
+                            {filteredSuggestions.map((suggestion, index) => (
+                                <div key={index} className={`px-3 py-2 cursor-pointer transition
+                                        ${index === selectedIndex ? 'bg-blue-100' : 'hover:bg-gray-100'}`} onClick={() =>
+                                        selectSuggestion(suggestion)}
+                                >
+                                    {suggestion}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // BARCODE SCANNER
+        // BARCODE SCANNER - Uses Capacitor MLKit (native) with Html5Qrcode fallback (web)
+        const BarcodeScanner = ({ onDetected, onClose }) => {
+            const [online, setOnline] = useState(navigator.onLine);
+            const [scanning, setScanning] = useState(false);
+            const [error, setError] = useState(null);
+            const [useWebFallback, setUseWebFallback] = useState(false);
+
+            useEffect(() => {
+                window.addEventListener('online', () => setOnline(true));
+                window.addEventListener('offline', () => setOnline(false));
+
+                const startScanning = async () => {
+                    try {
+                        const plugins = window.Capacitor?.Plugins || {};
+                        const pluginNames = Object.keys(plugins);
+
+                        // DEBUG: Log all available Capacitor plugins to console
+                        console.log('Available Capacitor Plugins:', pluginNames);
+
+                        // Try multiple possible plugin names (MLKit barcode scanner might register differently)
+                        const Scanner = plugins.BarcodeScanner || plugins.BarcodeScanning ||
+                            plugins.MlkitBarcodeScanning || plugins.CapacitorMlkitBarcodeScanning;
+
+                        // VISIBLE DEBUG: Show alert with plugin info (REMOVE AFTER DEBUGGING)
+                        // alert(`DEBUG - Capacitor Plugins Found:\n\n${pluginNames.join(', ') || 'NONE'}\n\nBarcode
+                        Scanner: ${ Scanner ? 'FOUND ✓' : 'NOT FOUND ✗' } `);
 
                             console.log('Found barcode scanner plugin:', Scanner ? 'Yes' : 'No (using web fallback)');
 
@@ -2112,8 +2111,8 @@ files.\n\nContinue?`)) {
                                     className="p-4 flex justify-between text-white bg-black/50 absolute top-0 w-full z-10 items-center">
                                     <span className="flex items-center gap-2">
                                         <div className={`w - 3 h - 3 rounded - full ${
-                                online ? 'bg-green-500' : 'bg-red-500'
-                            } `}></div>
+                            online ? 'bg-green-500' : 'bg-red-500'
+                        } `}></div>
                                         {online ? 'Online' : 'Offline'}
                                         {useWebFallback && <span className="text-xs opacity-50">(Web Mode)</span>}
                                     </span>
@@ -2299,10 +2298,10 @@ files.\n\nContinue?`)) {
                                     {/* Option 2: Browse/Paste/Drop Image */}
                                     <div ref={dropZoneRef} onDragOver={handleDragOver} onDragLeave={handleDragLeave}
                                         onDrop={handleDrop} className={`border - 2 border - dashed rounded - xl p - 6
-                            text - center transition - colors ${
-                                isDragging ? 'border-blue-500 bg-blue-50'
-                                    : 'border-gray-300'
-                            } `}>
+                        text - center transition - colors ${
+                            isDragging ? 'border-blue-500 bg-blue-50'
+                                : 'border-gray-300'
+                        } `}>
                                         <Icon name="Image" size={32} className="mx-auto text-gray-400 mb-2" />
                                         <p className="text-sm text-gray-600 mb-3">
                                             Drop barcode image here<br />
@@ -2321,9 +2320,9 @@ files.\n\nContinue?`)) {
                                     {/* Status message */}
                                     {status && (
                                     <p className={`mt - 3 text - sm text - center ${
-                                status.includes('found')
-                                    ? 'text-green-600' : 'text-orange-600'
-                            } `}>
+                            status.includes('found')
+                                ? 'text-green-600' : 'text-orange-600'
+                        } `}>
                                         {status}
                                     </p>
                                     )}
@@ -2392,7 +2391,7 @@ files.\n\nContinue?`)) {
                                 const overlay = document.createElement('div');
                                 overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999';
                                 overlay.innerHTML = `
-                                < div style = "background:white;border-radius:12px;padding:20px;min-width:200px;box-shadow:0 4px 20px rgba(0,0,0,0.3)" >
+                            < div style = "background:white;border-radius:12px;padding:20px;min-width:200px;box-shadow:0 4px 20px rgba(0,0,0,0.3)" >
                                         <div style="font-weight:bold;margin-bottom:15px;text-align:center">Add Image</div>
                                         <button id="browseBtn" style="width:100%;padding:12px;margin-bottom:8px;border:1px solid #ddd;border-radius:8px;background:#f8f8f8;cursor:pointer;display:flex;align-items:center;gap:8px;justify-content:center">
                                             📁 Browse File
@@ -2404,7 +2403,7 @@ files.\n\nContinue?`)) {
                                             Cancel
                                         </button>
                                     </div >
-                        `;
+            `;
                                 document.body.appendChild(overlay);
                                 overlay.querySelector('#browseBtn').onclick = () => { document.body.removeChild(overlay); resolve('browse'); };
                                 overlay.querySelector('#pasteBtn').onclick = () => { document.body.removeChild(overlay); resolve('paste'); };
@@ -2561,21 +2560,21 @@ files.\n\nContinue?`)) {
                             if (navigator.onLine) {
                             try {
                             const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-                    const data = await res.json();
-                    if (data.items && data.items[0]) {
-                        const info = data.items[0].volumeInfo;
-                        setForm(f => ({
-                            ...f, isbn: isbn, title: info.title,
-                            author_name: info.authors?.[0] || '', author_initials: '',
-                            publisher: info.publisher, pub_year: info.publishedDate?.substring(0, 4),
-                            front: info.imageLinks?.thumbnail, page_count: info.pageCount
-                        }));
-                    } else { alert("Not found in API. Please enter details manually."); }
+        const data = await res.json();
+        if (data.items && data.items[0]) {
+            const info = data.items[0].volumeInfo;
+            setForm(f => ({
+                ...f, isbn: isbn, title: info.title,
+                author_name: info.authors?.[0] || '', author_initials: '',
+                publisher: info.publisher, pub_year: info.publishedDate?.substring(0, 4),
+                front: info.imageLinks?.thumbnail, page_count: info.pageCount
+            }));
+        } else { alert("Not found in API. Please enter details manually."); }
                 } catch (e) { alert("API Error. Please check internet."); }
             } else {
-                setForm(f => ({ ...f, isbn: isbn }));
-        alert("Offline Mode: ISBN Scanned. Please enter details.");
-                            }
+            setForm(f => ({ ...f, isbn: isbn }));
+            alert("Offline Mode: ISBN Scanned. Please enter details.");
+        }
                             };
 
         let activeRecognition = null;
