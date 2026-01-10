@@ -51,8 +51,10 @@ jobs:
           # Create dist folder with only web assets (no node_modules)
           New-Item -ItemType Directory -Force -Path dist
           Copy-Item index.html dist/
+          Copy-Item -Recurse libs dist/ -ErrorAction SilentlyContinue
           Copy-Item -Recurse fonts dist/ -ErrorAction SilentlyContinue
           Write-Host "Web assets prepared in dist folder"
+          Get-ChildItem dist/
 
       - name: Build Tauri app
         run: npm run tauri build
