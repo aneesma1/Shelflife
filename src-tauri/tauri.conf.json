@@ -7,7 +7,7 @@
     },
     "package": {
         "productName": "ShelfLife",
-        "version": "2.5.1"
+        "version": "2.5.3"
     },
     "tauri": {
         "allowlist": {
