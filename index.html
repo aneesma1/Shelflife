@@ -4129,46 +4129,8 @@ Skipped: ${stats.skipped}
             // Sync to folder for recovery (enhanced: delete old, show comparison)
             const syncToFolder = async () => {
                 try {
-                    const { Filesystem } = window.Capacitor.Plugins;
-                    // Use global Directory and Encoding constants (defined at top of file)
-                    const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
-                    const targetDir = Directory[baseStr] || Directory.Documents;
-                    const folder = 'ShelfLife/sync_root_folder';
-
-                    // Create folder (ignore error if already exists)
-                    try {
-                        await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true });
-                    } catch (mkdirErr) {
-                        // Ignore "directory exists" errors - this is expected
-                        if (!mkdirErr.message?.includes('exist')) {
-                            throw mkdirErr;
-                        }
-                    }
-
-                    // Read existing sync files for comparison
-                    let previousCount = 0;
-                    let oldFiles = [];
-                    try {
-                        const dirContents = await Filesystem.readdir({ path: folder, directory: targetDir });
-                        oldFiles = dirContents.files.filter(f => f.name && f.name.startsWith('shelflife_sync_') && f.name.endsWith('.json'));
-
-                        // Read the most recent sync file to get previous count
-                        if (oldFiles.length > 0) {
-                            const latestFile = oldFiles.sort((a, b) => (b.name || '').localeCompare(a.name || ''))[0];
-                            try {
-                                const prevData = await Filesystem.readFile({
-                                    path: `${folder}/${latestFile.name}`,
-                                    directory: targetDir,
-                                    encoding: Encoding.UTF8
-                                });
-                                const parsed = JSON.parse(prevData.data);
-                                previousCount = parsed.count || 0;
-                            } catch (e) { /* ignore read errors */ }
-                        }
-                    } catch (e) { /* folder may not exist yet */ }
-
                     const allBooks = await db.books.toArray();
-                    const deviceName = localStorage.getItem('shelfLife_deviceName') || 'Unknown';
+                    const deviceName = localStorage.getItem('shelfLife_deviceName') || 'Desktop';
                     const syncData = {
                         _shelflife_sync: true,
                         timestamp: new Date().toISOString(),
@@ -4177,29 +4139,98 @@ Skipped: ${stats.skipped}
                         count: allBooks.length,
                         books: allBooks
                     };
-
                     const filename = `shelflife_sync_${deviceName}_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-                    await Filesystem.writeFile({
-                        path: `${folder}/${filename}`,
-                        data: JSON.stringify(syncData),
-                        directory: targetDir,
-                        encoding: Encoding.UTF8
-                    });
+                    const jsonStr = JSON.stringify(syncData);
 
-                    // Delete old sync files
-                    for (const oldFile of oldFiles) {
+                    // Check for Tauri (Windows/Mac/Linux desktop app)
+                    if (window.__TAURI__) {
                         try {
-                            await Filesystem.deleteFile({ path: `${folder}/${oldFile.name}`, directory: targetDir });
-                        } catch (e) { /* ignore delete errors */ }
+                            const { save } = window.__TAURI__.dialog;
+                            const { writeTextFile, BaseDirectory } = window.__TAURI__.fs;
+
+                            // Ask user where to save
+                            const filePath = await save({
+                                defaultPath: filename,
+                                filters: [{ name: 'JSON', extensions: ['json'] }]
+                            });
+
+                            if (filePath) {
+                                await writeTextFile(filePath, jsonStr);
+                                alert(`✅ Sync Complete!\n\n📚 ${allBooks.length} books\n📱 Device: ${deviceName}\n📂 Saved to: ${filePath}`);
+                            }
+                            return;
+                        } catch (tauriErr) {
+                            console.error('Tauri save failed:', tauriErr);
+                            // Fall through to browser download
+                        }
                     }
 
-                    // Show comparison
-                    const diff = allBooks.length - previousCount;
-                    const diffText = previousCount === 0 ? 'First sync!' :
-                        (diff > 0 ? `+${diff} new books since last sync` :
-                            diff < 0 ? `${diff} books (some deleted)` : 'No change in book count');
+                    // Check for Capacitor (Android/iOS)
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Filesystem) {
+                        const { Filesystem } = window.Capacitor.Plugins;
+                        const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
+                        const targetDir = Directory[baseStr] || Directory.Documents;
+                        const folder = 'ShelfLife/sync_root_folder';
 
-                    alert(`✅ Sync Complete!\n\n📚 ${allBooks.length} books\n📊 ${diffText}\n📱 Device: ${deviceName}\n📂 ${folder}/${filename}\n\n${oldFiles.length > 0 ? `🗑️ Deleted ${oldFiles.length} old sync file(s)` : ''}`);
+                        try {
+                            await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true });
+                        } catch (mkdirErr) {
+                            if (!mkdirErr.message?.includes('exist')) throw mkdirErr;
+                        }
+
+                        // Read existing sync files for comparison
+                        let previousCount = 0;
+                        let oldFiles = [];
+                        try {
+                            const dirContents = await Filesystem.readdir({ path: folder, directory: targetDir });
+                            oldFiles = dirContents.files.filter(f => f.name && f.name.startsWith('shelflife_sync_') && f.name.endsWith('.json'));
+                            if (oldFiles.length > 0) {
+                                const latestFile = oldFiles.sort((a, b) => (b.name || '').localeCompare(a.name || ''))[0];
+                                try {
+                                    const prevData = await Filesystem.readFile({
+                                        path: `${folder}/${latestFile.name}`,
+                                        directory: targetDir,
+                                        encoding: Encoding.UTF8
+                                    });
+                                    const parsed = JSON.parse(prevData.data);
+                                    previousCount = parsed.count || 0;
+                                } catch (e) { }
+                            }
+                        } catch (e) { }
+
+                        await Filesystem.writeFile({
+                            path: `${folder}/${filename}`,
+                            data: jsonStr,
+                            directory: targetDir,
+                            encoding: Encoding.UTF8
+                        });
+
+                        // Delete old sync files
+                        for (const oldFile of oldFiles) {
+                            try {
+                                await Filesystem.deleteFile({ path: `${folder}/${oldFile.name}`, directory: targetDir });
+                            } catch (e) { }
+                        }
+
+                        const diff = allBooks.length - previousCount;
+                        const diffText = previousCount === 0 ? 'First sync!' :
+                            (diff > 0 ? `+${diff} new books since last sync` :
+                                diff < 0 ? `${diff} books (some deleted)` : 'No change in book count');
+                        alert(`✅ Sync Complete!\n\n📚 ${allBooks.length} books\n📊 ${diffText}\n📱 Device: ${deviceName}\n📂 ${folder}/${filename}\n\n${oldFiles.length > 0 ? `🗑️ Deleted ${oldFiles.length} old sync file(s)` : ''}`);
+                        return;
+                    }
+
+                    // Browser fallback - download file
+                    const blob = new Blob([jsonStr], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    alert(`✅ Sync Complete!\n\n📚 ${allBooks.length} books\n📱 Device: ${deviceName}\n📂 Downloaded: ${filename}`);
                 } catch (err) {
                     alert(`Sync Error: ${err.message}\nCheck app permissions.`);
                 }

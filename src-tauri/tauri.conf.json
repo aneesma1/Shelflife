@@ -81,7 +81,8 @@
                 "title": "ShelfLife",
                 "width": 1200,
                 "minWidth": 400,
-                "minHeight": 600
+                "minHeight": 600,
+                "maximized": true
             }
         ]
     }
