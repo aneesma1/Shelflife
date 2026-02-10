@@ -344,13 +344,17 @@
             UTF16: 'utf16'
         };
 
+        // Platform detection helpers - safe checks for Tauri vs Capacitor vs Browser
+        const isNativeCapacitor = () => !!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Filesystem);
+        const isTauri = () => !!window.__TAURI__;
+
         const ExportUtils = {
             getTimestamp: () => {
                 const now = new Date();
                 return now.toISOString().replace(/[:.]/g, '-').slice(0, 16);
             },
             download: async (content, name, mimeType, specificFolder = null, specificBase = null) => {
-                if (window.Capacitor) {
+                if (isNativeCapacitor()) {
                     try {
                         const { Filesystem } = window.Capacitor.Plugins;
                         // Use specific folder if provided, else default to ShelfLife/Exports
@@ -677,7 +681,7 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                     alert("JSZip library not loaded. Cannot export images.");
                     return { success: false, error: "JSZip not available" };
                 }
-                if (!window.Capacitor) {
+                if (!isNativeCapacitor()) {
                     alert("Export Images to ZIP requires Android App.");
                     return { success: false, error: "Native FS required" };
                 }
@@ -3245,7 +3249,7 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
 
             const handleSaveImage = async (imgSrc) => {
                 try {
-                    if (window.Capacitor) {
+                    if (isNativeCapacitor()) {
                         const { Filesystem } = window.Capacitor.Plugins;
                         const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
                         const targetDir = Directory[baseStr] || Directory.Documents;
@@ -3650,7 +3654,7 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
 
             // Consolidated Chunked Backup Helper
             const performChunkedBackup = async (textOnly = false) => {
-                if (!window.Capacitor) { alert("Backup requires Android App (Native Filesystem)."); return; }
+                if (!isNativeCapacitor()) { alert("Backup requires Android App (Native Filesystem)."); return; }
                 try {
                     const { Filesystem, Device } = window.Capacitor.Plugins;
                     const allBooks = await db.books.toArray();
@@ -3740,7 +3744,7 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
 
             // Native Restore Helper (REVERTED TO MANUAL SCAN to prevent FilePicker Crashes)
             const performNativeRestore = async () => {
-                if (!window.Capacitor) { alert("Restore requires Android App (Native Filesystem)."); return; }
+                if (!isNativeCapacitor()) { alert("Restore requires Android App (Native Filesystem)."); return; }
                 try {
                     const { Filesystem } = window.Capacitor.Plugins;
 
@@ -4050,7 +4054,7 @@ Skipped: ${stats.skipped}
                 const csvLog = `Date,Mode,Files,Scanned,Added,Duplicates,Skipped\n"${now.toISOString()}","${mode}","${allFiles.map(f => f.name).join('; ')}",${stats.total},${stats.added},${stats.duplicates},${stats.skipped}`;
 
                 // Save logs if on Capacitor
-                if (window.Capacitor) {
+                if (isNativeCapacitor()) {
                     try {
                         const { Filesystem } = window.Capacitor.Plugins;
                         const targetDir = Directory[baseStr] || Directory.Documents;
@@ -4087,7 +4091,7 @@ Skipped: ${stats.skipped}
                 });
             };
             const verifyFolder = async () => {
-                if (!window.Capacitor) return alert("This feature requires the Android app.");
+                if (!isNativeCapacitor()) return alert("This feature requires the Android app.");
                 try {
                     const { Filesystem } = window.Capacitor.Plugins;
                     const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
@@ -5155,7 +5159,7 @@ OUTPUT: ${masterName}
             // Auto-detect device name from existing backups or hardware model
             useEffect(() => {
                 const detectDeviceName = async () => {
-                    if (!window.Capacitor) return;
+                    if (!isNativeCapacitor()) return;
                     try {
                         const { Filesystem, Device } = window.Capacitor.Plugins;
                         const targetDir = Directory.Documents;
@@ -5195,7 +5199,7 @@ OUTPUT: ${masterName}
             }, []);
 
             const requestPerms = async () => {
-                if (!window.Capacitor) return;
+                if (!isNativeCapacitor()) return;
                 try {
                     const { Filesystem, Camera } = window.Capacitor.Plugins;
                     setStatus('Requesting permissions...');
@@ -5272,7 +5276,7 @@ OUTPUT: ${masterName}
                             </div>
 
 
-                            {window.Capacitor && <div>
+                            {isNativeCapacitor() && <div>
                                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Storage Location</label>
                                 <div className="flex gap-2">
                                     <select className="p-3 border rounded-lg bg-gray-50 text-xs font-bold" value={base} onChange={e => setBase(e.target.value)}>
@@ -5289,7 +5293,7 @@ OUTPUT: ${masterName}
                                 <p className="text-[10px] text-gray-400 mt-1">Files will be saved to: {base}/{folder}/</p>
                             </div>}
 
-                            {window.Capacitor && <button onClick={requestPerms} className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg border border-gray-300 text-xs">
+                            {isNativeCapacitor() && <button onClick={requestPerms} className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg border border-gray-300 text-xs">
                                 🔓 Grant Storage Permissions & Test
                             </button>}
                             {status && <div className={`text-center text-[10px] font-bold p-1 rounded ${status.includes('Error') ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50'}`}>{status}</div>}
@@ -5327,7 +5331,7 @@ OUTPUT: ${masterName}
 
                 // Android Back Button & Permissions Logic
                 try {
-                    if (window.Capacitor) {
+                    if (isNativeCapacitor()) {
                         const { App } = window.Capacitor.Plugins;
                         // Handle Back Button
                         App.addListener('backButton', ({ canGoBack }) => {
