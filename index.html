@@ -4852,20 +4852,11 @@ Skipped: ${stats.skipped}
                 setStep('processing');
 
                 try {
-                    const { Filesystem } = window.Capacitor.Plugins;
-                    const targetDir = Directory[baseStr] || Directory.Documents;
                     const now = new Date();
                     const ts = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '_' + String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0');
-                    const sessionFolder = `ShelfLife/merge_${ts}`;
-                    const workFolder = `${sessionFolder}/work_files`;
-                    const mergePath = `${folder}/to_merge`;
-                    const deviceName = localStorage.getItem('shelfLife_deviceName') || 'MYPHONE';
+                    const deviceName = localStorage.getItem('shelfLife_deviceName') || 'Desktop';
 
-                    // Create session folders
-                    await Filesystem.mkdir({ path: sessionFolder, directory: targetDir, recursive: true });
-                    await Filesystem.mkdir({ path: workFolder, directory: targetDir, recursive: true });
-
-                    // Collect all books
+                    // Collect all books (shared logic)
                     const masterMap = new Map();
                     const duplicates = [];
                     const sourceInfo = [];
@@ -4884,13 +4875,10 @@ Skipped: ${stats.skipped}
                                     book.tags = [...new Set([...(book.tags || []), 'duplicate'])];
                                     masterMap.set(`dup_${Date.now()}_${Math.random()}`, book);
                                 }
-                                // In append mode, skip duplicate
                             } else {
                                 masterMap.set(key, book);
                             }
                         }
-                        // Note: Files picked via browser file picker cannot be moved/deleted 
-                        // as they're not accessible via Capacitor Filesystem API
                     }
 
                     const allBooks = [...masterMap.values()];
@@ -4908,16 +4896,9 @@ Skipped: ${stats.skipped}
                         }
                     };
 
-                    // Write master file
                     const masterName = `SL_MASTER_${typePrefix}_${deviceName}_${ts}.json`;
-                    await Filesystem.writeFile({
-                        path: `${sessionFolder}/${masterName}`,
-                        directory: targetDir,
-                        data: JSON.stringify([signature, ...allBooks]),
-                        encoding: Encoding.UTF8
-                    });
+                    const masterJson = JSON.stringify([signature, ...allBooks]);
 
-                    // Write TXT log
                     const txtLog = `========================================
 ShelfLife Merge Log
 ========================================
@@ -4932,29 +4913,70 @@ RESULT:
 Total Unique: ${allBooks.length}
 Duplicates Found: ${duplicates.length}
 Mode Action: ${mergeMode === 'merge' ? 'Tagged as duplicate' : 'Skipped'}
-----------------------------------------
-OUTPUT: ${masterName}
 ========================================`;
 
-                    await Filesystem.writeFile({
-                        path: `${sessionFolder}/merge_log.txt`,
-                        directory: targetDir,
-                        data: txtLog,
-                        encoding: Encoding.UTF8
-                    });
+                    // Platform-specific file saving
+                    if (isTauri()) {
+                        // Tauri: Save As dialog
+                        try {
+                            const { save } = window.__TAURI__.dialog;
+                            const { writeTextFile } = window.__TAURI__.fs;
 
-                    // Write CSV log
-                    const csvHeader = 'File,Date,Mode,Books,Output\n';
-                    const csvRow = `"${sourceInfo.map(s => s.name).join('; ')}",${now.toISOString()},${mergeMode},${allBooks.length},"${masterName}"`;
-                    await Filesystem.writeFile({
-                        path: `${sessionFolder}/merge_report.csv`,
-                        directory: targetDir,
-                        data: csvHeader + csvRow,
-                        encoding: Encoding.UTF8
-                    });
+                            const filePath = await save({
+                                defaultPath: masterName,
+                                filters: [{ name: 'JSON', extensions: ['json'] }]
+                            });
 
-                    setStep('complete');
-                    alert(`✅ Merge Complete!\n\nMaster: ${masterName}\nBooks: ${allBooks.length}\nDuplicates: ${duplicates.length}\n\nSaved to: ${sessionFolder}`);
+                            if (filePath) {
+                                await writeTextFile(filePath, masterJson);
+                                // Also save log file next to it
+                                const logPath = filePath.replace(/\.json$/i, '_log.txt');
+                                try { await writeTextFile(logPath, txtLog); } catch (e) { }
+
+                                setStep('complete');
+                                alert(`✅ Merge Complete!\n\nMaster: ${masterName}\nBooks: ${allBooks.length}\nDuplicates: ${duplicates.length}\n\nSaved to: ${filePath}`);
+                            }
+                        } catch (tauriErr) {
+                            console.error('Tauri save failed, falling back to download:', tauriErr);
+                            // Fall through to browser download
+                            const blob = new Blob([masterJson], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url; a.download = masterName;
+                            document.body.appendChild(a); a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                            setStep('complete');
+                            alert(`✅ Merge Complete!\n\nBooks: ${allBooks.length}\nDuplicates: ${duplicates.length}\n\nDownloaded: ${masterName}`);
+                        }
+                    } else if (isNativeCapacitor()) {
+                        // Capacitor: Native filesystem
+                        const { Filesystem } = window.Capacitor.Plugins;
+                        const targetDir = Directory[baseStr] || Directory.Documents;
+                        const sessionFolder = `ShelfLife/merge_${ts}`;
+
+                        await Filesystem.mkdir({ path: sessionFolder, directory: targetDir, recursive: true });
+                        await Filesystem.writeFile({ path: `${sessionFolder}/${masterName}`, directory: targetDir, data: masterJson, encoding: Encoding.UTF8 });
+                        await Filesystem.writeFile({ path: `${sessionFolder}/merge_log.txt`, directory: targetDir, data: txtLog, encoding: Encoding.UTF8 });
+
+                        const csvHeader = 'File,Date,Mode,Books,Output\n';
+                        const csvRow = `"${sourceInfo.map(s => s.name).join('; ')}",${now.toISOString()},${mergeMode},${allBooks.length},"${masterName}"`;
+                        await Filesystem.writeFile({ path: `${sessionFolder}/merge_report.csv`, directory: targetDir, data: csvHeader + csvRow, encoding: Encoding.UTF8 });
+
+                        setStep('complete');
+                        alert(`✅ Merge Complete!\n\nMaster: ${masterName}\nBooks: ${allBooks.length}\nDuplicates: ${duplicates.length}\n\nSaved to: ${sessionFolder}`);
+                    } else {
+                        // Browser: Download file
+                        const blob = new Blob([masterJson], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url; a.download = masterName;
+                        document.body.appendChild(a); a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        setStep('complete');
+                        alert(`✅ Merge Complete!\n\nBooks: ${allBooks.length}\nDuplicates: ${duplicates.length}\n\nDownloaded: ${masterName}`);
+                    }
 
                     // Reset
                     setFiles([]);

@@ -76,7 +76,7 @@
         "windows": [
             {
                 "fullscreen": false,
-                "height": 864,
+                "height": 700,
                 "resizable": true,
                 "title": "ShelfLife",
                 "width": 768,
