@@ -6,6 +6,7 @@ on:
     paths:
       - 'index.html'
       - 'src-tauri/**'
+      - 'package.json'
       - '.github/workflows/build-windows.yml'
   workflow_dispatch:  # Manual trigger button
 
@@ -16,6 +17,15 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        shell: pwsh
+        run: |
+          $conf = Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json
+          $ver = $conf.package.version
+          echo "APP_VERSION=$ver" >> $env:GITHUB_OUTPUT
+          Write-Host "Building ShelfLife v$ver"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -63,13 +73,13 @@ jobs:
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
         with:
-          name: ShelfLife-Windows-EXE
+          name: ShelfLife-Windows-EXE-v${{ steps.version.outputs.APP_VERSION }}
           path: src-tauri/target/release/*.exe
           if-no-files-found: error
 
       - name: Upload Windows MSI Installer
         uses: actions/upload-artifact@v4
         with:
-          name: ShelfLife-Windows-MSI
+          name: ShelfLife-Windows-MSI-v${{ steps.version.outputs.APP_VERSION }}
           path: src-tauri/target/release/bundle/msi/*.msi
           if-no-files-found: warn

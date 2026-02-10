@@ -3638,9 +3638,9 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
             const [csvProcessing, setCsvProcessing] = useState(false);
             const [csvDone, setCsvDone] = useState(false);
             const [imageExportStatus, setImageExportStatus] = useState({ exporting: false, current: 0, total: 0, message: '' });
-            const APP_VERSION = '2.6.0';
-            const BUILD_DATE = '2026-02-02 14:55';
-            const COMMIT_HASH = 'bulkedit';
+            const APP_VERSION = '2.7.0';
+            const BUILD_DATE = '2026-02-10 11:50';
+            const COMMIT_HASH = 'datafix';
 
             useEffect(() => {
                 try {
@@ -3654,85 +3654,113 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
 
             // Consolidated Chunked Backup Helper
             const performChunkedBackup = async (textOnly = false) => {
-                if (!isNativeCapacitor()) { alert("Backup requires Android App (Native Filesystem)."); return; }
                 try {
-                    const { Filesystem, Device } = window.Capacitor.Plugins;
                     const allBooks = await db.books.toArray();
                     const now = new Date();
                     const ts = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '_' + String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0') + '-' + String(now.getSeconds()).padStart(2, '0');
-
-                    // NEW FOLDER: ShelfLife/Backups
-                    const folder = 'ShelfLife/Backups';
-                    const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
-                    const targetDir = Directory[baseStr] || Directory.Documents;
-
-                    // Ensure Folders
-                    try { await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true }); } catch (e) { }
-
-                    const TARGET_SIZE = 9 * 1024 * 1024; // 9MB safe limit for chunks
-                    let part = 1;
-                    let currentChunk = [];
-                    let currentSize = 0;
                     const typePrefix = textOnly ? 'TXT_BK' : 'FULL_BK';
-                    const deviceName = localStorage.getItem('shelfLife_deviceName') || 'MYPHONE';
+                    const deviceName = localStorage.getItem('shelfLife_deviceName') || 'Desktop';
 
-                    // Get device info for signature
-                    let deviceInfo = { model: 'Unknown', platform: 'unknown' };
-                    try {
-                        if (Device) {
-                            const info = await Device.getInfo();
-                            deviceInfo = { model: info.model || 'Unknown', platform: info.platform || 'unknown', manufacturer: info.manufacturer || '' };
-                        }
-                    } catch (e) { }
+                    // Prepare books
+                    const processedBooks = textOnly
+                        ? allBooks.map(b => ({ ...b, front: null, rear: null, thumb: null, pages: [] }))
+                        : allBooks;
 
-                    // Create signature object to include in first chunk
+                    // Create signature
                     const signature = {
                         __shelflife_signature__: {
                             version: '2.0',
                             created: now.toISOString(),
                             device_nickname: deviceName,
-                            device_model: deviceInfo.model,
-                            device_manufacturer: deviceInfo.manufacturer,
-                            device_platform: deviceInfo.platform,
+                            device_model: 'Desktop',
+                            device_platform: 'windows',
                             type: typePrefix,
                             book_count: allBooks.length
                         }
                     };
 
-                    // Always include signature in first chunk
-                    currentChunk.push(signature);
-                    currentSize += JSON.stringify(signature).length;
+                    const backupData = [signature, ...processedBooks];
+                    const filename = `SL_${typePrefix}_${deviceName}_${ts}.json`;
+                    const jsonStr = JSON.stringify(backupData);
 
-                    for (const rawBook of allBooks) {
-                        const book = textOnly ? { ...rawBook, front: null, rear: null, thumb: null, pages: [] } : rawBook;
-                        const s = JSON.stringify(book);
-                        if (currentSize + s.length > TARGET_SIZE && currentChunk.length > 0) {
-                            const fname = `SL_${typePrefix}_${deviceName}_Part${part}_${ts}.json`;
-                            await Filesystem.writeFile({
-                                path: `${folder}/${fname}`,
-                                data: JSON.stringify(currentChunk),
-                                directory: targetDir,
-                                encoding: Encoding.UTF8
+                    if (isTauri()) {
+                        // Tauri: Save As dialog
+                        try {
+                            const { save } = window.__TAURI__.dialog;
+                            const { writeTextFile } = window.__TAURI__.fs;
+                            const filePath = await save({
+                                defaultPath: filename,
+                                filters: [{ name: 'JSON', extensions: ['json'] }]
                             });
-                            part++;
-                            currentChunk = [];
-                            currentSize = 0;
+                            if (filePath) {
+                                await writeTextFile(filePath, jsonStr);
+                                alert(`✅ Backup (${textOnly ? 'Text Only' : 'Full'}) Complete!\n\n📚 ${allBooks.length} books\n📂 Saved to: ${filePath}`);
+                            }
+                        } catch (tauriErr) {
+                            console.error('Tauri save failed:', tauriErr);
+                            // Fall through to browser download
+                            const blob = new Blob([jsonStr], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url; a.download = filename;
+                            document.body.appendChild(a); a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                            alert(`✅ Backup (${textOnly ? 'Text Only' : 'Full'}) Complete!\n\n📚 ${allBooks.length} books\n📂 Downloaded: ${filename}`);
                         }
-                        currentChunk.push(book);
-                        currentSize += s.length;
-                    }
+                    } else if (isNativeCapacitor()) {
+                        // Capacitor: Chunked backup to native filesystem
+                        const { Filesystem, Device } = window.Capacitor.Plugins;
+                        const folder = 'ShelfLife/Backups';
+                        const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
+                        const targetDir = Directory[baseStr] || Directory.Documents;
+                        try { await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true }); } catch (e) { }
 
-                    if (currentChunk.length > 0) {
-                        const fname = `SL_${typePrefix}_${deviceName}_Part${part}_${ts}.json`;
-                        await Filesystem.writeFile({
-                            path: `${folder}/${fname}`,
-                            data: JSON.stringify(currentChunk),
-                            directory: targetDir,
-                            encoding: Encoding.UTF8
-                        });
-                    }
+                        let deviceInfo = { model: 'Unknown', platform: 'unknown' };
+                        try {
+                            if (Device) {
+                                const info = await Device.getInfo();
+                                deviceInfo = { model: info.model || 'Unknown', platform: info.platform || 'unknown', manufacturer: info.manufacturer || '' };
+                            }
+                        } catch (e) { }
+                        signature.__shelflife_signature__.device_model = deviceInfo.model;
+                        signature.__shelflife_signature__.device_platform = deviceInfo.platform;
+                        signature.__shelflife_signature__.device_manufacturer = deviceInfo.manufacturer;
 
-                    alert(`Backup (${textOnly ? 'Text Only' : 'Full'}) Complete!\nSaved ${part} file(s) to:\n${baseStr}/${folder}/\n\nDevice: ${deviceName}\nModel: ${deviceInfo.model}`);
+                        const TARGET_SIZE = 9 * 1024 * 1024;
+                        let part = 1;
+                        let currentChunk = [signature];
+                        let currentSize = JSON.stringify(signature).length;
+
+                        for (const rawBook of allBooks) {
+                            const book = textOnly ? { ...rawBook, front: null, rear: null, thumb: null, pages: [] } : rawBook;
+                            const s = JSON.stringify(book);
+                            if (currentSize + s.length > TARGET_SIZE && currentChunk.length > 0) {
+                                const fname = `SL_${typePrefix}_${deviceName}_Part${part}_${ts}.json`;
+                                await Filesystem.writeFile({ path: `${folder}/${fname}`, data: JSON.stringify(currentChunk), directory: targetDir, encoding: Encoding.UTF8 });
+                                part++;
+                                currentChunk = [];
+                                currentSize = 0;
+                            }
+                            currentChunk.push(book);
+                            currentSize += s.length;
+                        }
+                        if (currentChunk.length > 0) {
+                            const fname = `SL_${typePrefix}_${deviceName}_Part${part}_${ts}.json`;
+                            await Filesystem.writeFile({ path: `${folder}/${fname}`, data: JSON.stringify(currentChunk), directory: targetDir, encoding: Encoding.UTF8 });
+                        }
+                        alert(`Backup (${textOnly ? 'Text Only' : 'Full'}) Complete!\nSaved ${part} file(s) to:\n${baseStr}/${folder}/\n\nDevice: ${deviceName}\nModel: ${deviceInfo.model}`);
+                    } else {
+                        // Browser fallback: Download
+                        const blob = new Blob([jsonStr], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url; a.download = filename;
+                        document.body.appendChild(a); a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        alert(`✅ Backup (${textOnly ? 'Text Only' : 'Full'}) Complete!\n\n📚 ${allBooks.length} books\n📂 Downloaded: ${filename}`);
+                    }
 
                     // Track backup for reminder system
                     localStorage.setItem('shelfLife_lastBackupDate', new Date().toISOString());
@@ -3979,7 +4007,19 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                 for (const file of allFiles) {
                     try {
                         const content = await readFileAsText(file);
-                        const chunkData = JSON.parse(content);
+                        let chunkData = JSON.parse(content);
+
+                        // Handle sync file format: {_shelflife_sync: true, books: [...]}
+                        if (!Array.isArray(chunkData)) {
+                            if (chunkData._shelflife_sync && Array.isArray(chunkData.books)) {
+                                chunkData = chunkData.books;
+                            } else if (chunkData.books && Array.isArray(chunkData.books)) {
+                                chunkData = chunkData.books;
+                            } else {
+                                console.warn(`Skipping ${file.name}: not a recognized format`);
+                                continue;
+                            }
+                        }
 
                         const toAdd = [];
                         for (let book of chunkData) {
