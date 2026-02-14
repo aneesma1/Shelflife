@@ -7,10 +7,12 @@ steps:
   # 1. Install Dependencies
   - name: 'node:18'
     entrypoint: 'npm'
+    dir: 'ShelfLife_Android'
     args: ['install', '--legacy-peer-deps']
 
   # 2. Prepare Web Assets (Create www folder & Download Libs for Offline)
   - name: 'ubuntu'
+    dir: 'ShelfLife_Android'
     args: 
       - 'bash'
       - '-c'
@@ -49,11 +51,13 @@ steps:
   # 3. Add Android Platform (Generates android/ folder)
   - name: 'node:18'
     entrypoint: 'npx'
+    dir: 'ShelfLife_Android'
     args: ['cap', 'add', 'android']
 
   # 3.5 Inject Permissions & LargeHeap into AndroidManifest.xml
   - name: 'ubuntu'
     entrypoint: 'bash'
+    dir: 'ShelfLife_Android'
     args:
       - '-c'
       - |
@@ -62,11 +66,13 @@ steps:
   # 4. Sync Assets (Copies www to android/app/src/main/assets/public)
   - name: 'node:18'
     entrypoint: 'npx'
+    dir: 'ShelfLife_Android'
     args: ['cap', 'sync', 'android']
 
   # 5. Download existing keystore or skip (will create in build step)
   - name: 'gcr.io/cloud-builders/gsutil'
     entrypoint: 'bash'
+    dir: 'ShelfLife_Android'
     args:
       - '-c'
       - |
@@ -75,6 +81,7 @@ steps:
   # 6. Build APK with consistent signing
   - name: 'reactnativecommunity/react-native-android:latest'
     entrypoint: 'bash'
+    dir: 'ShelfLife_Android'
     args:
       - '-c'
       - |
@@ -116,6 +123,7 @@ steps:
   # 7. Save keystore for future builds
   - name: 'gcr.io/cloud-builders/gsutil'
     entrypoint: 'bash'
+    dir: 'ShelfLife_Android'
     args:
       - '-c'
       - |
@@ -128,4 +136,4 @@ options:
 artifacts:
   objects:
     location: 'gs://$PROJECT_ID-build-artifacts/'
-    paths: ['android/app/build/outputs/apk/debug/app-debug.apk']
+    paths: ['ShelfLife_Android/android/app/build/outputs/apk/debug/app-debug.apk']
