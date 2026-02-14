@@ -61,20 +61,6 @@
             -webkit-tap-highlight-color: transparent;
         }
 
-        /* PWA Text Selection Override */
-        body.is-pwa #tbody,
-        body.is-pwa .card,
-        body.is-pwa td,
-        body.is-pwa th,
-        body.is-pwa div,
-        .modal-content,
-        .modal-content * {
-            -webkit-user-select: text !important;
-            -moz-user-select: text !important;
-            -ms-user-select: text !important;
-            user-select: text !important;
-        }
-
         .font-ml {
             font-family: 'Noto Sans Malayalam', sans-serif;
         }
@@ -365,9 +351,8 @@
         const ExportUtils = {
             getTimestamp: () => {
                 const now = new Date();
-                const d = now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).replace(/ /g, '-');
-                const t = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }).replace(/:/g, '-');
-                return `${d}_${t}`;
+                const pad = (n) => String(n).padStart(2, '0');
+                return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
             },
             download: async (content, name, mimeType, specificFolder = null, specificBase = null) => {
                 if (isNativeCapacitor()) {
@@ -435,35 +420,15 @@
                 for (let i = 1; i <= maxTags; i++) header += `,Tag_${i}`;
                 header += "\n";
                 const rows = books.map(b => {
-                    // ESCAPE HELPER: Ensures every field is properly quoted and internal quotes are doubled
-                    const esc = (val) => `"${String(val || '').replace(/"/g, '""')}"`;
-
-                    const core = [
-                        esc(b.id),
-                        esc(b.title),
-                        esc(b.author_name || b.author),
-                        esc(b.author_initials),
-                        esc(b.publisher),
-                        esc(b.pub_year),
-                        esc(b.page_count),
-                        esc(b.condition),
-                        esc(b.price),
-                        esc(b.currency),
-                        esc(b.owner),
-                        esc(b.building),
-                        esc(b.shelf),
-                        esc('\t' + (b.isbn || '')), // ISBN (Force Text with Tab)
-                        esc(b.status)
-                    ].join(',');
-
+                    const core = `"${b.id || ''}","${(b.title || '').replace(/"/g, '""')}","${(b.author_name || b.author || '').replace(/"/g, '""')}","${(b.author_initials || '').replace(/"/g, '""')}","${(b.publisher || '').replace(/"/g, '""')}","${b.pub_year || ''}","${b.page_count || ''}","${b.condition || ''}","${b.price || ''}","${b.currency || ''}","${b.owner || ''}","${b.building || ''}","${b.shelf || ''}","${b.isbn || ''}","${b.status || ''}"`;
                     const tags = (b.tags || []);
-                    const tagCells = Array.from({ length: maxTags }, (_, i) => esc(tags[i])).join(',');
+                    const tagCells = Array.from({ length: maxTags }, (_, i) => `"${(tags[i] || '').replace(/"/g, '""')}"`).join(',');
                     return `${core},${tagCells}`;
                 }).join('\n');
 
                 // Sanitize filename
                 const safePrefix = filenamePrefix.replace(/[^a-z0-9_]/gi, '_');
-                const timestamp = ExportUtils.getTimestamp().replace(/[-:]/g, ''); // Compact timestamp
+                const timestamp = ExportUtils.getTimestamp();
                 ExportUtils.download("\uFEFF" + header + rows, `${safePrefix}_${timestamp}.csv`, "text/csv;charset=utf-8", folder, base);
             },
             htmlText: (books, type, title = "Library Inventory", specificFolder = null, specificBase = null) => {
@@ -522,7 +487,7 @@
 
                 // Generate table rows at export time (not in JS)
                 const tableRows = booksData.map(b =>
-                    '<tr data-lang="' + (langMap[b.lang] || b.lang) + '" data-building="' + b.building + '" data-owner="' + b.owner + '" data-tags="' + b.tags.join('|') + '"><td style="font-weight:600" class="col-title">' + b.title + '</td><td class="col-author">' + b.author + '</td><td class="col-lang">' + (langMap[b.lang] || b.lang) + '</td><td class="col-building">' + b.building + '</td><td class="col-shelf hidden">' + b.shelf + '</td><td class="col-owner">' + b.owner + '</td><td class="col-year hidden">' + b.year + '</td><td class="col-condition">' + b.condition + '</td><td class="col-status status-' + b.status + '">' + (b.status === 'avail' ? 'Available' : b.status === 'lent' ? 'Lent' : 'Sold') + '</td><td class="col-isbn hidden">' + b.isbn + '</td><td class="col-tags">' + b.tags.map(t => '<span class="tag">' + t + '</span>').join('') + '</td></tr>'
+                    '<tr data-id="' + b.id + '" data-lang="' + (langMap[b.lang] || b.lang) + '" data-building="' + b.building + '" data-owner="' + b.owner + '" data-tags="' + b.tags.join('|') + '"><td style="font-weight:600" class="col-title">' + b.title + '</td><td class="col-author">' + b.author + '</td><td class="col-lang">' + (langMap[b.lang] || b.lang) + '</td><td class="col-building">' + b.building + '</td><td class="col-shelf hidden">' + b.shelf + '</td><td class="col-owner">' + b.owner + '</td><td class="col-year hidden">' + b.year + '</td><td class="col-condition">' + b.condition + '</td><td class="col-status status-' + b.status + '">' + (b.status === 'avail' ? 'Available' : b.status === 'lent' ? 'Lent' : 'Sold') + '</td><td class="col-isbn hidden">' + b.isbn + '</td><td class="col-tags">' + b.tags.map(t => '<span class="tag">' + t + '</span>').join('') + '</td></tr>'
                 ).join('');
 
                 const html = `<!DOCTYPE html>
@@ -589,14 +554,14 @@ tr:hover td{background:#FFF7ED}
 .modal-close:hover{background:rgba(255,255,255,0.3)}
 .modal-body{padding:20px;max-height:60vh;overflow-y:auto}
 .modal-chips{display:flex;flex-wrap:wrap;gap:8px}
-.modal-chip{background:var(--primary-light);color:var(--text);padding:6px 12px;border-radius:20px;font-size:13px;font-weight:500}
+.modal-chip{background:var(--primary-light);color:var(--text);padding:6px 12px;border-radius:20px;font-size:13px;font-weight:500;cursor:pointer;transition:all 0.2s}.modal-chip:hover{background:var(--border);transform:translateY(-1px)}
 @media print{.sidebar,.btn,.quick-filters,.toolbar,.dropdown,.header,.stats-grid,.modal-overlay{display:none!important}.main{margin-left:0!important}body{background:white}}
 </style></head>
 <body>
 <aside class="sidebar">
 <div class="sidebar-header"><div class="logo"><span>📚</span><span>ShelfLife</span></div></div>
 <div class="sidebar-content">
-<button class="btn" style="width:100%;margin-bottom:15px;justify-content:center;background:var(--primary);color:white;border:none" onclick="resetAll()">🔄 Reset Filters</button>
+<button class="btn" style="width:100%;margin-bottom:10px;justify-content:center" onclick="resetSidebar()">🔄 Reset Filters</button>
 <div class="filter-section"><div class="section-title">🌍 Language</div>
 ${Object.entries(languages).map(([k, v]) => '<label class="filter-option"><input type="checkbox" checked onchange="filterTable()" data-col="lang" data-val="' + (langMap[k] || k) + '"> ' + (langMap[k] || k) + ' <span class="count">' + v + '</span></label>').join('')}
 </div>
@@ -612,7 +577,7 @@ ${Object.entries(owners).map(([k, v]) => '<label class="filter-option"><input ty
 </div></aside>
 <main class="main">
 <div class="header">
-<div><h1 class="page-title">${title}</h1><p class="header-subtitle">Generated: ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} • ${stats.total} books</p></div>
+<div><h1 class="page-title">${title}</h1><p class="header-subtitle">Generated: ${new Date().toLocaleString()} • ${stats.total} books</p></div>
 <div style="display:flex;gap:8px">
 <button class="btn" onclick="exportCSV()">📥 Export CSV</button>
 <button class="btn" onclick="window.print()">🖨️ Print</button>
@@ -634,8 +599,8 @@ ${Object.entries(owners).map(([k, v]) => '<label class="filter-option"><input ty
 <div class="stat-card" onclick="statCardClick('owners')"><div class="stat-icon">👤</div><div class="stat-label">Owners</div><div class="stat-value">${stats.owners}</div></div>
 </div>
 <div class="toolbar">
-<button class="btn" onclick="resetAll()">🔄 Reset</button>
 <div class="search-box"><span class="search-icon">🔍</span><input type="text" id="search" placeholder="Search..." oninput="filterTable()"></div>
+<button class="btn" onclick="resetMain()">❌ Reset</button>
 <div class="dropdown"><button class="btn">👁️ Columns ▼</button>
 <div class="dropdown-content">
 <label><input type="checkbox" checked onchange="toggleCol('title')"> Title</label>
@@ -684,7 +649,6 @@ for(var i=0;i<rows.length;i++)tb.appendChild(rows[i]);}
 function toggleCol(name){var els=document.querySelectorAll('.col-'+name);for(var i=0;i<els.length;i++)els[i].classList.toggle('hidden');}
 function getChecked(col){var cbs=document.querySelectorAll('input[data-col="'+col+'"]:checked');var vals=[];for(var i=0;i<cbs.length;i++)vals.push(cbs[i].getAttribute('data-val').toLowerCase());return vals;}
 function applyAllFilters(){
-try {
 var q=document.getElementById('search').value.toLowerCase();
 var langs=getChecked('lang'),bldgs=getChecked('building'),conds=getChecked('condition'),owners=getChecked('owner');
 var rows=document.querySelectorAll('#tbody tr');var shown=0;
@@ -699,57 +663,17 @@ if(show&&activeQuick!=='all'){var sc=r.querySelector('.col-status');var sv=sc?sc
 if(activeQuick==='avail'&&sv.indexOf('available')===-1)show=false;
 if(activeQuick==='lent'&&sv.indexOf('lent')===-1)show=false;}
 r.style.display=show?'':'none';if(show)shown++;}
-document.getElementById('info').textContent='Showing '+shown+' books';
-} catch(e) { console.error('Filter Error:', e); }
-}
+document.getElementById('info').textContent='Showing '+shown+' books';}
 function filterTable(){applyAllFilters();}
 function quickFilter(type,btn){var btns=document.querySelectorAll('.quick-btn');for(var i=0;i<btns.length;i++)btns[i].classList.remove('active');btn.classList.add('active');activeQuick=type;applyAllFilters();}
-function resetAll(){
-document.getElementById('search').value='';
-var cbs=document.querySelectorAll('input[type="checkbox"]');for(var i=0;i<cbs.length;i++)cbs[i].checked=true;
-var btns=document.querySelectorAll('.quick-btn');for(var i=0;i<btns.length;i++)btns[i].classList.remove('active');
-document.querySelector('.quick-btn').classList.add('active');activeQuick='all';
-applyAllFilters();
-}
-function drillDown(el){
-resetAll();
-var col=el.getAttribute('data-col');
-var val=el.getAttribute('data-val');
-var escVal=val.replace(/"/g,'\\"');
-// Check sidebar first
-var cb=document.querySelector('input[data-col="'+col+'"][data-val="'+escVal+'"]');
-if(cb){
-var all=document.querySelectorAll('input[data-col="'+col+'"]');for(var i=0;i<all.length;i++)all[i].checked=false;
-cb.checked=true;
-} else {
-document.getElementById('search').value=val;
-}
-filterTable();
-closeModal();
-}
-function showModal(icon,title,items,col){
-document.getElementById('modalTitle').innerHTML=icon+' '+title;
-var html='<div class="modal-chips">';
-for(var i=0;i<items.length;i++){
-// No JS escaping needed, just HTML entity encoding for the attribute value
-var val=items[i].replace(/"/g,'&quot;');
-html+='<span class="modal-chip" style="cursor:pointer" data-col="'+col+'" data-val="'+val+'" onclick="drillDown(this)">'+items[i]+'</span>';
-}
-html+='</div>';document.getElementById('modalBody').innerHTML=html;document.getElementById('modal').classList.add('show');
-}
+function resetSidebar(){var cbs=document.querySelectorAll('.filter-option input');for(var i=0;i<cbs.length;i++)cbs[i].checked=false;filterTable();}
+function resetMain(){document.getElementById('search').value='';activeQuick='all';var btns=document.querySelectorAll('.quick-btn');for(var i=0;i<btns.length;i++)btns[i].classList.remove('active');document.querySelector('.quick-btn').classList.add('active');filterTable();}
+function drillDown(el){closeModal();var type=el.getAttribute('data-type');var val=el.getAttribute('data-val');var s=document.getElementById('search');s.value='';var cbs=document.querySelectorAll('.filter-option input');for(var i=0;i<cbs.length;i++)cbs[i].checked=false;if(type==='total'){filterTable();return;}if(['languages','buildings','owners','condition'].indexOf(type)!==-1){var cb=document.querySelector('input[data-col="'+(type==='languages'?'lang':type==='buildings'?'building':type==='owners'?'owner':'condition')+'"][data-val="'+val.replace(/"/g,'\\\\"')+'"]');if(cb)cb.checked=true;}else{s.value=val;}filterTable();}
+function showModal(icon,title,items,type){document.getElementById('modalTitle').innerHTML=icon+' '+title;var html='<div class="modal-chips">';for(var i=0;i<items.length;i++){var v=items[i].replace(/"/g,'&quot;');html+='<span class="modal-chip" data-type="'+type+'" data-val="'+v+'" onclick="drillDown(this)">'+items[i]+'</span>';}html+='</div>';document.getElementById('modalBody').innerHTML=html;document.getElementById('modal').classList.add('show');}
 function closeModal(){document.getElementById('modal').classList.remove('show');}
-function statCardClick(type){
-var items=[];var icon='';var title='';var col='';
-if(type==='total'){ resetAll(); return; }
-if(type==='authors'){ col='author';icon='✍️';var s=new Set();document.querySelectorAll('#tbody tr').forEach(function(r){var c=r.querySelector('.col-author');if(c&&c.textContent.trim())s.add(c.textContent.trim());});title='Authors ('+s.size+')';items=Array.from(s).sort(); }
-if(type==='buildings'){ col='building';icon='🏛️';var s=new Set();document.querySelectorAll('#tbody tr').forEach(function(r){var c=r.getAttribute('data-building');if(c)s.add(c);});title='Buildings ('+s.size+')';items=Array.from(s).sort(); }
-if(type==='languages'){ col='lang';icon='🌍';var s=new Set();document.querySelectorAll('#tbody tr').forEach(function(r){var c=r.getAttribute('data-lang');if(c)s.add(c);});title='Languages ('+s.size+')';items=Array.from(s).sort(); }
-if(type==='tags'){ col='tags';icon='🏷️';var s=new Set();document.querySelectorAll('#tbody tr').forEach(function(r){var c=r.getAttribute('data-tags');if(c)c.split('|').forEach(function(x){if(x)s.add(x);});});title='Tags ('+s.size+')';items=Array.from(s).sort(); }
-if(type==='owners'){ col='owner';icon='👤';var s=new Set();document.querySelectorAll('#tbody tr').forEach(function(r){var c=r.getAttribute('data-owner');if(c)s.add(c);});title='Owners ('+s.size+')';items=Array.from(s).sort(); }
-showModal(icon,title,items,col);
-}
+function statCardClick(type){var items=[];var icon='';var title='';switch(type){case 'total':icon='📖';title='Total Books: '+document.querySelectorAll('#tbody tr').length;items=['Show All'];break;case 'authors':icon='✍️';var a=new Set();document.querySelectorAll('#tbody tr').forEach(function(r){var c=r.querySelector('.col-author');if(c&&c.textContent.trim())a.add(c.textContent.trim());});title='Authors ('+a.size+')';items=Array.from(a).sort();break;case 'buildings':icon='🏛️';var b=new Set();document.querySelectorAll('#tbody tr').forEach(function(r){var v=r.getAttribute('data-building');if(v)b.add(v);});title='Buildings ('+b.size+')';items=Array.from(b).sort();break;case 'languages':icon='🌍';var l=new Set();document.querySelectorAll('#tbody tr').forEach(function(r){var v=r.getAttribute('data-lang');if(v)l.add(v);});title='Languages ('+l.size+')';items=Array.from(l).sort();break;case 'tags':icon='🏷️';var t=new Set();document.querySelectorAll('#tbody tr').forEach(function(r){var v=r.getAttribute('data-tags');if(v)v.split('|').forEach(function(x){if(x)t.add(x);});});title='Tags ('+t.size+')';items=Array.from(t).sort();break;case 'owners':icon='👤';var o=new Set();document.querySelectorAll('#tbody tr').forEach(function(r){var v=r.getAttribute('data-owner');if(v)o.add(v);});title='Owners ('+o.size+')';items=Array.from(o).sort();break;}showModal(icon,title,items,type);}
 var maxTagCols=${maxTags};
-function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['Title','Author','Language','Building','Owner','Condition','Status'];for(var t=1;t<=maxTagCols;t++)hdr.push('Tag_'+t);var csv='\uFEFF'+hdr.join(',')+String.fromCharCode(10);for(var i=0;i<rows.length;i++){if(rows[i].style.display==='none')continue;var r=rows[i];var line=['"'+r.querySelector('.col-title').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-author').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-lang').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-building').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-owner').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-condition').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-status').textContent.replace(/"/g,'""')+'"'];var tags=(r.getAttribute('data-tags')||'').split('|');for(var t=0;t<maxTagCols;t++)line.push('"'+(tags[t]||'').replace(/"/g,'""')+'"');csv+=line.join(',')+String.fromCharCode(10);}var blob=new Blob([csv],{type:'text/csv;charset=utf-8'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='library_export.csv';a.click();}
+function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['ID','Title','Author','Language','Building','Owner','Condition','Status'];for(var t=1;t<=maxTagCols;t++)hdr.push('Tag_'+t);var csv='\uFEFF'+hdr.join(',')+String.fromCharCode(10);for(var i=0;i<rows.length;i++){if(rows[i].style.display==='none')continue;var r=rows[i];var line=['"'+(r.getAttribute('data-id')||'').replace(/"/g,'""')+'"','"'+r.querySelector('.col-title').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-author').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-lang').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-building').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-owner').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-condition').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-status').textContent.replace(/"/g,'""')+'"'];var tags=(r.getAttribute('data-tags')||'').split('|');for(var t=0;t<maxTagCols;t++)line.push('"'+(tags[t]||'').replace(/"/g,'""')+'"');csv+=line.join(',')+String.fromCharCode(10);}var blob=new Blob([csv],{type:'text/csv;charset=utf-8'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);var now=new Date();var pad=function(n){return String(n).padStart(2,'0')};var ts=now.getFullYear()+'-'+pad(now.getMonth()+1)+'-'+pad(now.getDate())+'_'+pad(now.getHours())+'-'+pad(now.getMinutes());a.download='library_export_'+ts+'.csv';a.click();}
 <\/script>
 </body></html>`;
 
@@ -763,14 +687,13 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                     alert("JSZip library not loaded. Cannot export images.");
                     return { success: false, error: "JSZip not available" };
                 }
-
-                // Platform Check
-                const isNative = isNativeCapacitor();
-                let Filesystem = null;
-                if (isNative) {
-                    Filesystem = window.Capacitor.Plugins.Filesystem;
+                if (!isNativeCapacitor()) {
+                    // alert("Export Images to ZIP requires Android App.");
+                    // return { success: false, error: "Native FS required" };
+                    console.log("Desktop Mode: Exporting ZIP via browser download...");
                 }
 
+                const { Filesystem } = window.Capacitor.Plugins;
                 const MAX_IMAGES_PER_ZIP = 150;
                 const MAX_SIZE_PER_ZIP = 100 * 1024 * 1024; // 100MB per ZIP
 
@@ -808,7 +731,7 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
 
                 onProgress(0, allImages.length, `Starting export of ${allImages.length} images...`);
 
-                const deviceName = localStorage.getItem('shelfLife_deviceName') || (isNative ? 'ANDROID' : 'BROWSER');
+                const deviceName = localStorage.getItem('shelfLife_deviceName') || 'MYPHONE';
                 const now = new Date();
                 const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
                 const baseFilename = `${deviceName}_Images_${dateStr}`;
@@ -816,10 +739,7 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                 const folder = 'ShelfLife/Exports';
                 const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
                 const targetDir = Directory[baseStr] || Directory.Documents;
-
-                if (isNative) {
-                    try { await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true }); } catch (e) { }
-                }
+                try { await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true }); } catch (e) { }
 
                 const savedFiles = [];
                 let processedCount = 0;
@@ -849,26 +769,23 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                             const zipFilename = estimatedParts > 1 || savedFiles.length > 0 ? `${baseFilename}_Part${partNumber}.zip` : `${baseFilename}.zip`;
                             onProgress(processedCount, allImages.length, `Compressing Part ${partNumber}...`);
 
-                            if (isNative) {
-                                // Native Save
-                                const zipBlob = await currentZip.generateAsync({ type: "base64", compression: "DEFLATE", compressionOptions: { level: 6 } }, (m) => {
+                            if (isNativeCapacitor()) {
+                                const zipBase64 = await currentZip.generateAsync({ type: "base64", compression: "DEFLATE", compressionOptions: { level: 6 } }, (m) => {
                                     onProgress(processedCount, allImages.length, `Compressing Part ${partNumber}: ${Math.round(m.percent)}%`);
                                 });
-                                await Filesystem.writeFile({ path: `${folder}/${zipFilename}`, data: zipBlob, directory: targetDir });
-                                savedFiles.push({ filename: zipFilename, imageCount: currentZipImageCount });
+                                await Filesystem.writeFile({ path: `${folder}/${zipFilename}`, data: zipBase64, directory: targetDir });
+                                savedFiles.push({ filename: zipFilename, imageCount: currentZipImageCount, sizeMB: Math.round((zipBase64.length * 0.75) / (1024 * 1024)) });
                             } else {
-                                // Browser Download
                                 const zipBlob = await currentZip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } }, (m) => {
                                     onProgress(processedCount, allImages.length, `Compressing Part ${partNumber}: ${Math.round(m.percent)}%`);
                                 });
-                                const url = URL.createObjectURL(zipBlob);
                                 const a = document.createElement('a');
-                                a.href = url;
+                                a.href = URL.createObjectURL(zipBlob);
                                 a.download = zipFilename;
                                 document.body.appendChild(a);
                                 a.click();
-                                setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
-                                savedFiles.push({ filename: zipFilename, imageCount: currentZipImageCount });
+                                setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 100);
+                                savedFiles.push({ filename: zipFilename, imageCount: currentZipImageCount, sizeMB: Math.round(zipBlob.size / (1024 * 1024)) });
                             }
 
                             if (!isLast) {
@@ -880,13 +797,15 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                             await new Promise(r => requestAnimationFrame(r));
                         }
                     }
-                    return { success: true, count: savedFiles.length };
-                } catch (e) {
-                    console.error(e);
-                    alert("Export failed: " + e.message);
-                    return { success: false, error: e.message };
+
+                    onProgress(allImages.length, allImages.length, "Complete!");
+                    return { success: true, files: savedFiles, totalImages: allImages.length, totalParts: savedFiles.length, folder: `${baseStr}/${folder}` };
+
+                } catch (error) {
+                    console.error("Image ZIP export failed:", error);
+                    return { success: false, error: error.message || "Export failed", partialFiles: savedFiles };
                 }
-            },
+            }
         };
 
         const ICONS = {
@@ -1012,12 +931,6 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
         };
 
         const { useState, useEffect, useMemo, useRef, useCallback } = React;
-
-        // HELPER: Title Case
-        const toTitleCase = (str) => {
-            if (!str) return '';
-            return str.toLowerCase().replace(/(?:^|\s|-)\S/g, function (a) { return a.toUpperCase(); });
-        };
 
         // AUTO-SUGGEST INPUT with viewport-aware dropdown (avoids keyboard)
         const AutoSuggestInput = ({ label, value, onChange, field, placeholder }) => {
@@ -1445,7 +1358,10 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
             return TAG_COLORS[hash % TAG_COLORS.length];
         };
 
-
+        // Title Case formatter for consistent tag naming
+        const toTitleCase = (str) => {
+            return str.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+        };
 
         const TagManagerModal = ({ isOpen, onClose, books, onTagsUpdated }) => {
             const [allTags, setAllTags] = useState([]);
@@ -3469,7 +3385,6 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
 
             // Copy book details to clipboard
             const copyBookDetails = () => {
-                const dateAdded = book.date_added ? new Date(book.date_added).toLocaleDateString() : 'Unknown';
                 const text = `📚 ${book.title}${book.phonetic && book.phonetic !== book.title ? ` (${book.phonetic})` : ''}
                                 ✍️ ${book.author_name || book.author || 'Unknown'}${book.author_initials ? ` (${book.author_initials})` : ''}
                                 📖 ISBN: ${book.isbn || 'N/A'}
@@ -3481,13 +3396,6 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                                 📋 Condition: ${book.condition || 'Good'} | ${book.status === 'avail' ? 'Available' : 'Lent'}
                                 💰 Value: ${book.currency || ''} ${book.price || 'N/A'}
                                 🏷️ Tags: ${(book.tags || []).join(', ') || 'None'}
-                                📅 Added: ${dateAdded}
-                                
-                                📝 Description:
-                                ${book.description || 'No description.'}
-                                
-                                🗒️ Notes:
-                                ${book.notes || 'No notes.'}
 
                                 Exported from ShelfLife`;
                 navigator.clipboard.writeText(text).then(() => {
@@ -3536,7 +3444,7 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                         </div>
                     )}
 
-                    <div className="bg-white w-full max-w-md rounded-2xl overflow-hidden max-h-[90vh] overflow-y-auto modal-content">
+                    <div className="bg-white w-full max-w-md rounded-2xl overflow-hidden max-h-[90vh] overflow-y-auto modal-content select-text">
                         <div className="relative h-64 bg-gray-100 overflow-x-auto whitespace-nowrap flex">
                             {/* Gallery View */}
                             {book.front && <img src={book.front} onClick={() => setZoomImg(book.front)} className="h-full w-auto object-contain flex-shrink-0 mr-1 bg-black/5 cursor-zoom-in" />}
@@ -3631,7 +3539,7 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
 
             const pubStats = useMemo(() => {
                 const c = {}; books.forEach(b => { const k = b.publisher || 'Unknown'; c[k] = (c[k] || 0) + 1; });
-                return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 25);
+                return Object.entries(c).sort((a, b) => b[1] - a[1]);
             }, [books]);
 
             // NEW: Lang/Loc Stats for Dash
@@ -3646,12 +3554,12 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
 
             const locStats = useMemo(() => {
                 const c = {}; books.forEach(b => { const k = b.building || 'Unknown'; c[k] = (c[k] || 0) + 1; });
-                return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 25);
+                return Object.entries(c).sort((a, b) => b[1] - a[1]);
             }, [books]);
 
             const tagStats = useMemo(() => {
                 const c = {}; books.forEach(b => { if (b.tags) b.tags.forEach(t => c[t] = (c[t] || 0) + 1) });
-                return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 25);
+                return Object.entries(c).sort((a, b) => b[1] - a[1]);
             }, [books]);
 
             const condStats = useMemo(() => {
@@ -3661,7 +3569,7 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
 
             const ownerStats = useMemo(() => {
                 const c = {}; books.forEach(b => { const k = b.owner || 'Unassigned'; c[k] = (c[k] || 0) + 1; });
-                return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 5);
+                return Object.entries(c).sort((a, b) => b[1] - a[1]);
             }, [books]);
 
             const repairList = books.filter(b => b.condition === 'Torn' || b.condition === 'Loose' || (b.tags && b.tags.includes('repair')));
@@ -3739,8 +3647,9 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
             const [frFind, setFrFind] = useState('');
             const [frReplace, setFrReplace] = useState('');
             const [frCaseSensitive, setFrCaseSensitive] = useState(false);
-            const [frExactMatch, setFrExactMatch] = useState(true);
+            const [frExactMatch, setFrExactMatch] = useState(false);
             const [frPreview, setFrPreview] = useState([]);
+            const [frAllMatches, setFrAllMatches] = useState([]);
             const [frApplied, setFrApplied] = useState(false);
             // CSV Import state
             const [csvFile, setCsvFile] = useState(null);
@@ -3768,7 +3677,7 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                 try {
                     const allBooks = await db.books.toArray();
                     const now = new Date();
-                    const ts = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '_' + String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0') + '-' + String(now.getSeconds()).padStart(2, '0');
+                    const ts = ExportUtils.getTimestamp();
                     const typePrefix = textOnly ? 'TXT_BK' : 'FULL_BK';
                     const deviceName = localStorage.getItem('shelfLife_deviceName') || 'Desktop';
 
@@ -3888,7 +3797,7 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                     const { Filesystem } = window.Capacitor.Plugins;
 
                     // Force Manual/Default Folder Logic (Safer)
-                    const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
+                    const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife/Backups';
                     const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
                     const targetDir = Directory[baseStr] || Directory.Documents;
 
@@ -4077,6 +3986,22 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                 const files = e.target.files;
                 if (!files || files.length === 0) return;
 
+                // Helper: read file as text
+                const readFileAsText = (file) => new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (evt) => resolve(evt.target.result);
+                    reader.onerror = reject;
+                    reader.readAsText(file);
+                });
+
+                // Helper: normalize any JSON data to flat array of books
+                const normalizeToBooks = (data) => {
+                    if (Array.isArray(data)) return data;
+                    if (data._shelflife_sync && Array.isArray(data.books)) return data.books;
+                    if (data.books && Array.isArray(data.books)) return data.books;
+                    return [data];
+                };
+
                 // Allow multi-select for all parts
                 const allFiles = Array.from(files).filter(f => f.name.endsWith('.json'));
                 if (allFiles.length === 0) { alert("No JSON files selected"); return; }
@@ -4087,7 +4012,8 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                 // Parse first file to get signature info
                 const firstFileContent = await readFileAsText(allFiles[0]);
                 const firstData = JSON.parse(firstFileContent);
-                const signature = firstData.find(b => b.__shelflife_signature__)?.__shelflife_signature__;
+                const firstBooks = normalizeToBooks(firstData);
+                const signature = firstBooks.find(b => b.__shelflife_signature__)?.__shelflife_signature__;
 
                 const signatureInfo = signature
                     ? `Device: ${signature.device_nickname || 'Unknown'}\nModel: ${signature.device_model || 'Unknown'}\nBooks: ${signature.book_count || '?'}`
@@ -4181,7 +4107,7 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                 }
                 // Generate automatic restore logs (TXT and CSV)
                 const now = new Date();
-                const ts = now.toISOString().replace(/[:.]/g, '-').slice(0, 16);
+                const ts = ExportUtils.getTimestamp();
                 const logFolder = 'ShelfLife/Restore';
                 const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
 
@@ -4228,8 +4154,16 @@ Skipped: ${stats.skipped}
                     }
                 }
 
-                alert(`Restore Complete (${mode})\n\nScanned: ${stats.total}\nAdded: ${stats.added}\nDuplicates: ${stats.duplicates}\nSkipped: ${stats.skipped}\n\n📝 Logs saved to ${logFolder}/`);
-                window.location.reload();
+                // Mark setup as complete so we don't get stuck in setup loop (do this before alert)
+                if (!localStorage.getItem('shelfLife_backupFolder')) {
+                    localStorage.setItem('shelfLife_backupFolder', 'ShelfLife_Backups');
+                    localStorage.setItem('shelfLife_backupBase', 'DOCUMENTS');
+                }
+
+                alert(`Restore Complete (${mode})\n\nScanned: ${stats.total}\nAdded: ${stats.added}\nDuplicates: ${stats.duplicates}\nSkipped: ${stats.skipped}\n\n✅ Your books will appear in the library momentarily (no reload needed).\n📝 Logs saved to ${logFolder}/`);
+
+                // NO RELOAD - App auto-refreshes every 1s
+                // window.location.reload();
             };
 
             // Helper to read file as text
@@ -4294,7 +4228,7 @@ Skipped: ${stats.skipped}
                         count: allBooks.length,
                         books: allBooks
                     };
-                    const filename = `shelflife_sync_${deviceName}_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+                    const filename = `shelflife_sync_${deviceName}_${ExportUtils.getTimestamp()}.json`;
                     const jsonStr = JSON.stringify(syncData);
 
                     // Check for Tauri (Windows/Mac/Linux desktop app)
@@ -4532,8 +4466,8 @@ Skipped: ${stats.skipped}
                         };
                         const hasWildcard = frFind.includes('*');
                         const doPreview = () => {
-                            if (!frFind.trim()) { setFrPreview([]); return; }
-                            const regex = hasWildcard ? wildcardToRegex(frFind, frCaseSensitive) : null;
+                            if (!frFind.trim()) { setFrPreview([]); setFrAllMatches([]); return; }
+                            const regex = hasWildcard ? wildcardToRegex(frFind.trim(), frCaseSensitive) : null;
                             const matches = books.filter(b => {
                                 if (frField === 'tags') {
                                     return (b.tags || []).some(t => {
@@ -4543,38 +4477,21 @@ Skipped: ${stats.skipped}
                                         return frCaseSensitive ? val.includes(frFind) : val.toLowerCase().includes(frFind.toLowerCase());
                                     });
                                 } else {
-                                    const val = b[frField] || '';
+                                    // Fallback for author_name -> author (legacy support)
+                                    const rawVal = b[frField] || (frField === 'author_name' ? b.author : '');
+                                    const val = String(rawVal || '');
                                     if (hasWildcard) return regex.test(val);
                                     if (frExactMatch) return frCaseSensitive ? val === frFind : val.toLowerCase() === frFind.toLowerCase();
                                     return frCaseSensitive ? val.includes(frFind) : val.toLowerCase().includes(frFind.toLowerCase());
                                 }
                             });
+                            setFrAllMatches(matches);
                             setFrPreview(matches.slice(0, 50));
                         };
                         const doApply = async () => {
-                            if (!frFind.trim()) return;
-
-                            // Re-scan ALL matches (ignore preview limit)
-                            const regex = hasWildcard ? wildcardToRegex(frFind, frCaseSensitive) : null;
-                            const allMatches = books.filter(b => {
-                                if (frField === 'tags') {
-                                    return (b.tags || []).some(t => {
-                                        const val = t || '';
-                                        if (hasWildcard) return regex.test(val);
-                                        if (frExactMatch) return frCaseSensitive ? val === frFind : val.toLowerCase() === frFind.toLowerCase();
-                                        return frCaseSensitive ? val.includes(frFind) : val.toLowerCase().includes(frFind.toLowerCase());
-                                    });
-                                } else {
-                                    const val = b[frField] || '';
-                                    if (hasWildcard) return regex.test(val);
-                                    if (frExactMatch) return frCaseSensitive ? val === frFind : val.toLowerCase() === frFind.toLowerCase();
-                                    return frCaseSensitive ? val.includes(frFind) : val.toLowerCase().includes(frFind.toLowerCase());
-                                }
-                            });
-
-                            if (allMatches.length === 0) return;
-
-                            for (const book of allMatches) {
+                            if (!frFind.trim() || frAllMatches.length === 0) return;
+                            const regex = hasWildcard ? wildcardToRegex(frFind.trim(), frCaseSensitive) : null;
+                            for (const book of frAllMatches) {
                                 if (frField === 'tags') {
                                     const newTags = (book.tags || []).map(t => {
                                         if (hasWildcard) {
@@ -4589,7 +4506,9 @@ Skipped: ${stats.skipped}
                                     });
                                     await db.books.update(book.id, { tags: newTags });
                                 } else {
-                                    const oldVal = book[frField] || '';
+                                    // Fallback for author_name -> author
+                                    const rawVal = book[frField] || (frField === 'author_name' ? book.author : '');
+                                    const oldVal = String(rawVal || '');
                                     let newVal;
                                     if (hasWildcard) {
                                         newVal = oldVal.replace(regex, frReplace);
@@ -4600,7 +4519,15 @@ Skipped: ${stats.skipped}
                                 }
                             }
                             setFrApplied(true);
-                            setTimeout(() => { setShowFindReplace(false); window.location.reload(); }, 1500);
+                            // Auto-close after 1.5s (no reload needed, app auto-refreshes)
+                            setTimeout(() => {
+                                setShowFindReplace(false);
+                                setFrFind('');
+                                setFrReplace('');
+                                setFrPreview([]);
+                                setFrAllMatches([]);
+                                setFrApplied(false);
+                            }, 1500);
                         };
                         const closeModal = () => { setShowFindReplace(false); setFrFind(''); setFrReplace(''); setFrPreview([]); setFrApplied(false); };
                         return (
@@ -4641,7 +4568,10 @@ Skipped: ${stats.skipped}
                                         <button onClick={doPreview} className="w-full py-2 bg-gray-100 rounded-lg text-sm font-bold hover:bg-gray-200">🔍 Preview Changes</button>
                                         {frPreview.length > 0 && (
                                             <div className="bg-teal-50 rounded-lg p-3 border border-teal-200">
-                                                <div className="text-sm font-bold text-teal-800 mb-2">📚 {frPreview.length} book(s) will be updated</div>
+                                                <div className="text-sm font-bold text-teal-800 mb-2">
+                                                    📚 Found {frAllMatches.length} matching book(s)
+                                                    {frAllMatches.length > 50 && <span className="text-xs font-normal ml-2">(Showing first 50)</span>}
+                                                </div>
                                                 <div className="max-h-32 overflow-y-auto space-y-1 text-xs">
                                                     {frPreview.map(b => (
                                                         <div key={b.id} className="bg-white rounded p-2 flex justify-between items-center">
@@ -4655,8 +4585,8 @@ Skipped: ${stats.skipped}
                                     </div>
                                     <div className="p-4 border-t flex gap-3">
                                         <button onClick={closeModal} className="flex-1 py-3 border rounded-lg font-bold text-gray-600 hover:bg-gray-50">Cancel</button>
-                                        <button onClick={doApply} disabled={frPreview.length === 0 || frApplied} className={`flex-1 py-3 rounded-lg font-bold text-white ${frApplied ? 'bg-green-500' : frPreview.length > 0 ? 'bg-teal-600 hover:bg-teal-700' : 'bg-gray-300 cursor-not-allowed'}`}>
-                                            {frApplied ? '✅ Applied!' : `Apply to ${frPreview.length} Books`}
+                                        <button onClick={doApply} disabled={frAllMatches.length === 0 || frApplied} className={`flex-1 py-3 rounded-lg font-bold text-white ${frApplied ? 'bg-green-500' : frAllMatches.length > 0 ? 'bg-teal-600 hover:bg-teal-700' : 'bg-gray-300 cursor-not-allowed'}`}>
+                                            {frApplied ? '✅ Applied!' : `Apply to ${frAllMatches.length} Books`}
                                         </button>
                                     </div>
                                 </div>
@@ -4719,7 +4649,7 @@ Skipped: ${stats.skipped}
                                     }
                                 }
                                 const newTags = [];
-                                for (let i = 1; i <= 10; i++) { const tagVal = row[`Tag_${i}`]; if (tagVal && tagVal.trim()) newTags.push(tagVal.trim()); }
+                                for (let i = 1; i <= 10; i++) { const tagVal = row[`Tag_${i}`]; if (tagVal && tagVal.trim()) newTags.push(toTitleCase(tagVal.trim())); }
                                 if (newTags.length > 0) {
                                     const oldTags = existingBook.tags || [];
                                     if (JSON.stringify(oldTags) !== JSON.stringify(newTags)) { updates.tags = newTags; changes.push(`ID ${id}: tags [${oldTags.join(', ')}] → [${newTags.join(', ')}]`); }
@@ -4790,9 +4720,9 @@ Skipped: ${stats.skipped}
                                 <div className="flex gap-2">
                                     <input
                                         className="flex-1 p-2 border rounded text-sm uppercase font-bold tracking-widest"
-                                        maxLength={10}
+                                        maxLength={15}
                                         value={tempDeviceName}
-                                        onChange={(e) => setTempDeviceName(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                                        onChange={(e) => setTempDeviceName(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
                                     />
                                     <button
                                         onClick={() => {
@@ -4805,7 +4735,7 @@ Skipped: ${stats.skipped}
                                         SAVE
                                     </button>
                                 </div>
-                                <p className="text-[10px] text-gray-400 mt-1">Used in backups (A-Z, 0-9 Only). Example: SL_BK_MYPHONE_...</p>
+                                <p className="text-[10px] text-gray-400 mt-1">Used in backups (A-Z, 0-9, _ allowed). Example: SL_BK_MY_PHONE_...</p>
                             </div>
 
                             <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">History</h4>
@@ -4973,7 +4903,22 @@ Skipped: ${stats.skipped}
                             });
 
                             const data = JSON.parse(content);
-                            const books = Array.isArray(data) ? data : [data];
+
+                            // Normalize data to array of books
+                            let books;
+                            if (Array.isArray(data)) {
+                                books = data;
+                            } else if (data._shelflife_sync && Array.isArray(data.books)) {
+                                // Sync file format: {_shelflife_sync: true, books: [...]}
+                                books = data.books;
+                            } else if (data.books && Array.isArray(data.books)) {
+                                // Generic wrapper with books array
+                                books = data.books;
+                            } else {
+                                // Single object, wrap in array
+                                books = [data];
+                            }
+
                             const signature = books.find(b => b.__shelflife_signature__)?.__shelflife_signature__ || null;
                             const actualBooks = books.filter(b => !b.__shelflife_signature__);
 
@@ -5456,16 +5401,16 @@ Mode Action: ${mergeMode === 'merge' ? 'Tagged as duplicate' : 'Skipped'}
                                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Device Nickname</label>
                                 <input
                                     className="w-full p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none transition-all uppercase"
-                                    maxLength={10}
-                                    placeholder="MYPHONE"
+                                    maxLength={15}
+                                    placeholder="MY_PHONE"
                                     value={devName}
                                     onChange={(e) => {
-                                        const val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                        const val = e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '');
                                         setDevName(val);
                                     }}
                                 />
                                 {detectedName && <p className="text-[10px] text-blue-500 mt-1">Auto-detected from existing backups: {detectedName}</p>}
-                                <p className="text-[10px] text-gray-400 mt-1">Backup filename: SL_BK_{devName || 'MYPHONE'}_Part1_...</p>
+                                <p className="text-[10px] text-gray-400 mt-1">A-Z, 0-9, _ allowed. Backup filename: SL_BK_{devName || 'MY_PHONE'}_Part1_...</p>
                             </div>
 
 
@@ -5491,7 +5436,15 @@ Mode Action: ${mergeMode === 'merge' ? 'Tagged as duplicate' : 'Skipped'}
                             </button>}
                             {status && <div className={`text-center text-[10px] font-bold p-1 rounded ${status.includes('Error') ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50'}`}>{status}</div>}
 
-                            <button onClick={onComplete} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg transform transition active:scale-95">
+                            <button onClick={() => {
+                                // Save defaults for browser/desktop if not set
+                                if (!isNativeCapacitor()) {
+                                    localStorage.setItem('shelfLife_backupFolder', 'ShelfLife_Backups');
+                                    localStorage.setItem('shelfLife_backupBase', 'DOCUMENTS');
+                                    if (devName) localStorage.setItem('shelfLife_deviceName', devName);
+                                }
+                                onComplete();
+                            }} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg transform transition active:scale-95">
                                 Start Using App
                             </button>
                         </div>
@@ -5572,17 +5525,7 @@ Mode Action: ${mergeMode === 'merge' ? 'Tagged as duplicate' : 'Skipped'}
             }, [currency]);
 
             // Save Logic
-            const save = async (inputData) => {
-                const d = { ...inputData };
-
-                // Enforce Title Case
-                ['title', 'author', 'publisher', 'series', 'owner', 'building', 'shelf'].forEach(k => {
-                    if (d[k] && typeof d[k] === 'string') d[k] = toTitleCase(d[k].trim());
-                });
-                if (d.tags && Array.isArray(d.tags)) {
-                    d.tags = d.tags.map(t => toTitleCase(t));
-                }
-
+            const save = async (d) => {
                 try {
                     if (d.id) await db.books.put(d);
                     else {
@@ -5649,11 +5592,6 @@ Mode Action: ${mergeMode === 'merge' ? 'Tagged as duplicate' : 'Skipped'}
                 </div>
             );
         };
-
-        // Platform Mode Detection for CSS Styling (e.g. Text Selection)
-        if (!isNativeCapacitor()) {
-            document.body.classList.add('is-pwa');
-        }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);

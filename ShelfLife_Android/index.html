@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -59,6 +59,20 @@
             overscroll-behavior: none;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
+        }
+
+        /* PWA Text Selection Override */
+        body.is-pwa #tbody,
+        body.is-pwa .card,
+        body.is-pwa td,
+        body.is-pwa th,
+        body.is-pwa div,
+        .modal-content,
+        .modal-content * {
+            -webkit-user-select: text !important;
+            -moz-user-select: text !important;
+            -ms-user-select: text !important;
+            user-select: text !important;
         }
 
         .font-ml {
@@ -344,26 +358,19 @@
             UTF16: 'utf16'
         };
 
+        // Platform detection helpers - safe checks for Tauri vs Capacitor vs Browser
+        const isNativeCapacitor = () => !!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Filesystem);
+        const isTauri = () => !!window.__TAURI__;
+
         const ExportUtils = {
             getTimestamp: () => {
                 const now = new Date();
-                const pad = (n) => String(n).padStart(2, '0');
-                return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
-            },
-            getReadableTimestamp: (date) => {
-                const d = date || new Date();
-                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                const day = d.getDate();
-                const mon = months[d.getMonth()];
-                const year = d.getFullYear();
-                let hours = d.getHours();
-                const mins = String(d.getMinutes()).padStart(2, '0');
-                const ampm = hours >= 12 ? 'PM' : 'AM';
-                hours = hours % 12 || 12;
-                return `${day}-${mon}-${year} ${hours}:${mins} ${ampm}`;
+                const d = now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).replace(/ /g, '-');
+                const t = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }).replace(/:/g, '-');
+                return `${d}_${t}`;
             },
             download: async (content, name, mimeType, specificFolder = null, specificBase = null) => {
-                if (window.Capacitor) {
+                if (isNativeCapacitor()) {
                     try {
                         const { Filesystem } = window.Capacitor.Plugins;
                         // Use specific folder if provided, else default to ShelfLife/Exports
@@ -424,21 +431,39 @@
                 const base = specificBase || localStorage.getItem('shelfLife_exportBase') || 'DOCUMENTS';
 
                 const maxTags = books.reduce((max, b) => Math.max(max, (b.tags || []).length), 0);
-                let header = "RowNum,ID,Title,AuthorName,AuthorInitials,Publisher,Year,Pages,Condition,Price,Currency,Owner,Building,Shelf,ISBN,Status";
+                let header = "ID,Title,AuthorName,AuthorInitials,Publisher,Year,Pages,Condition,Price,Currency,Owner,Building,Shelf,ISBN,Status";
                 for (let i = 1; i <= maxTags; i++) header += `,Tag_${i}`;
                 header += "\n";
-                const rows = books.map((b, idx) => {
-                    const rowNum = idx + 1;
-                    const bookId = b.id || '';
-                    const core = `${rowNum},${bookId},"${(b.title || '').replace(/"/g, '""')}","${(b.author_name || b.author || '').replace(/"/g, '""')}","${(b.author_initials || '').replace(/"/g, '""')}","${(b.publisher || '').replace(/"/g, '""')}","${b.pub_year || ''}","${b.page_count || ''}","${b.condition || ''}","${b.price || ''}","${b.currency || ''}","${b.owner || ''}","${b.building || ''}","${b.shelf || ''}","${b.isbn || ''}","${b.status || ''}"`;
+                const rows = books.map(b => {
+                    // ESCAPE HELPER: Ensures every field is properly quoted and internal quotes are doubled
+                    const esc = (val) => `"${String(val || '').replace(/"/g, '""')}"`;
+
+                    const core = [
+                        esc(b.id),
+                        esc(b.title),
+                        esc(b.author_name || b.author),
+                        esc(b.author_initials),
+                        esc(b.publisher),
+                        esc(b.pub_year),
+                        esc(b.page_count),
+                        esc(b.condition),
+                        esc(b.price),
+                        esc(b.currency),
+                        esc(b.owner),
+                        esc(b.building),
+                        esc(b.shelf),
+                        esc('\t' + (b.isbn || '')), // ISBN (Force Text with Tab)
+                        esc(b.status)
+                    ].join(',');
+
                     const tags = (b.tags || []);
-                    const tagCells = Array.from({ length: maxTags }, (_, i) => `"${(tags[i] || '').replace(/"/g, '""')}"`).join(',');
+                    const tagCells = Array.from({ length: maxTags }, (_, i) => esc(tags[i])).join(',');
                     return `${core},${tagCells}`;
                 }).join('\n');
 
                 // Sanitize filename
                 const safePrefix = filenamePrefix.replace(/[^a-z0-9_]/gi, '_');
-                const timestamp = ExportUtils.getTimestamp();
+                const timestamp = ExportUtils.getTimestamp().replace(/[-:]/g, ''); // Compact timestamp
                 ExportUtils.download("\uFEFF" + header + rows, `${safePrefix}_${timestamp}.csv`, "text/csv;charset=utf-8", folder, base);
             },
             htmlText: (books, type, title = "Library Inventory", specificFolder = null, specificBase = null) => {
@@ -452,10 +477,284 @@
                 const folder = specificFolder || 'ShelfLife/Exports';
                 const base = specificBase || localStorage.getItem('shelfLife_exportBase') || 'DOCUMENTS';
 
-                let html = `<html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;padding:20px;} .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:20px;} .card{border:1px solid #ddd;padding:10px;text-align:center;border-radius:8px;} img{width:100%;height:150px;object-fit:cover;margin-bottom:10px;border-radius:4px;} .meta{font-size:12px;color:#666;}</style></head><body><h1>${title}</h1><div class="grid">${books.map(b => `<div class="card">${b.front ? `<img src="${b.front}"/>` : ''}<b>${b.title}</b><br><small>${b.author_name || b.author} ${b.author_initials || ''}</small><br><span class="meta">${b.publisher} ΓÇó ${b.pub_year}</span></div>`).join('')}</div></body></html>`;
+                let html = `<html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;padding:20px;} .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:20px;} .card{border:1px solid #ddd;padding:10px;text-align:center;border-radius:8px;} img{width:100%;height:150px;object-fit:cover;margin-bottom:10px;border-radius:4px;} .meta{font-size:12px;color:#666;}</style></head><body><h1>${title}</h1><div class="grid">${books.map(b => `<div class="card">${b.front ? `<img src="${b.front}"/>` : ''}<b>${b.title}</b><br><small>${b.author_name || b.author} ${b.author_initials || ''}</small><br><span class="meta">${b.publisher} • ${b.pub_year}</span></div>`).join('')}</div></body></html>`;
                 ExportUtils.download(html, `ShelfLife_Visual_${ExportUtils.getTimestamp()}.html`, "text/html;charset=utf-8", folder, base);
             },
+            htmlDashboard: (books, title = "Library Dashboard", specificFolder = null, specificBase = null) => {
+                const folder = specificFolder || 'ShelfLife/Exports';
+                const base = specificBase || localStorage.getItem('shelfLife_exportBase') || 'DOCUMENTS';
 
+                // Prepare book data - escape special chars for JSON in HTML
+                const booksData = books.map(b => ({
+                    id: b.id || Math.random().toString(36).substr(2, 9),
+                    title: (b.title || '').replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c] || c)),
+                    author: ((b.author_name || b.author || '')).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c] || c)),
+                    publisher: (b.publisher || '').replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c] || c)),
+                    year: b.pub_year || '', building: b.building || '', shelf: b.shelf || '', owner: b.owner || '',
+                    condition: b.condition || '', lang: b.lang || 'en', price: b.price || '', currency: b.currency || '',
+                    isbn: b.isbn || '', status: b.status || 'avail', tags: (b.tags || []).map(t => t.replace(/[<>&"']/g, '')),
+                    front: b.front ? 'yes' : '', dateAdded: b.dateAdded || ''
+                }));
+
+                const stats = {
+                    total: booksData.length, authors: new Set(booksData.map(b => b.author).filter(Boolean)).size,
+                    buildings: new Set(booksData.map(b => b.building).filter(Boolean)).size,
+                    languages: new Set(booksData.map(b => b.lang)).size,
+                    tags: new Set(booksData.flatMap(b => b.tags)).size,
+                    owners: new Set(booksData.map(b => b.owner).filter(Boolean)).size,
+                    available: booksData.filter(b => b.status === 'avail').length,
+                    lent: booksData.filter(b => b.status === 'lent').length,
+                    withCover: booksData.filter(b => b.front).length,
+                    noCover: booksData.filter(b => !b.front).length
+                };
+
+                const languages = {}, buildings = {}, conditions = {}, owners = {};
+                booksData.forEach(b => {
+                    languages[b.lang] = (languages[b.lang] || 0) + 1;
+                    if (b.building) buildings[b.building] = (buildings[b.building] || 0) + 1;
+                    if (b.condition) conditions[b.condition] = (conditions[b.condition] || 0) + 1;
+                    if (b.owner) owners[b.owner] = (owners[b.owner] || 0) + 1;
+                });
+                const langMap = { en: 'English', ml: 'Malayalam', hi: 'Hindi', ar: 'Arabic', ur: 'Urdu', fa: 'Persian' };
+
+                // Calculate max tags for CSV export
+                const maxTags = booksData.reduce((max, b) => Math.max(max, (b.tags || []).length), 0);
+
+                // Generate table rows at export time (not in JS)
+                const tableRows = booksData.map(b =>
+                    '<tr data-lang="' + (langMap[b.lang] || b.lang) + '" data-building="' + b.building + '" data-owner="' + b.owner + '" data-tags="' + b.tags.join('|') + '"><td style="font-weight:600" class="col-title">' + b.title + '</td><td class="col-author">' + b.author + '</td><td class="col-lang">' + (langMap[b.lang] || b.lang) + '</td><td class="col-building">' + b.building + '</td><td class="col-shelf hidden">' + b.shelf + '</td><td class="col-owner">' + b.owner + '</td><td class="col-year hidden">' + b.year + '</td><td class="col-condition">' + b.condition + '</td><td class="col-status status-' + b.status + '">' + (b.status === 'avail' ? 'Available' : b.status === 'lent' ? 'Lent' : 'Sold') + '</td><td class="col-isbn hidden">' + b.isbn + '</td><td class="col-tags">' + b.tags.map(t => '<span class="tag">' + t + '</span>').join('') + '</td></tr>'
+                ).join('');
+
+                const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>${title} - ShelfLife</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--primary:#EA580C;--primary-dark:#C2410C;--primary-light:#FFEDD5;--sidebar-bg:#431407;--sidebar-hover:#7C2D12;--bg:#FFF7ED;--text:#431407;--text-muted:#9A3412;--border:#FED7AA}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh}
+.sidebar{width:260px;background:var(--sidebar-bg);color:#FFEDD5;position:fixed;height:100vh;overflow-y:auto;z-index:50}
+.sidebar-header{padding:20px;border-bottom:1px solid rgba(255,255,255,0.1)}
+.logo{font-size:20px;font-weight:700;display:flex;align-items:center;gap:10px;color:white}
+.sidebar-content{padding:16px}
+.filter-section{margin-bottom:16px}
+.section-title{font-size:11px;text-transform:uppercase;color:#FDBA74;font-weight:600;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.1);margin-bottom:8px}
+.filter-option{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:4px;cursor:pointer;font-size:12px;color:#FFEDD5}
+.filter-option:hover{background:var(--sidebar-hover)}
+.filter-option input{width:14px;height:14px;accent-color:var(--primary)}
+.count{margin-left:auto;background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:4px;font-size:10px;color:#FDBA74}
+.main{flex:1;margin-left:260px;padding:20px}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px}
+.page-title{font-size:24px;font-weight:800}
+.header-subtitle{color:var(--text-muted);font-size:13px;margin-top:4px}
+.btn{padding:8px 14px;border-radius:6px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:12px;border:1px solid var(--border);background:white;color:var(--text)}
+.btn:hover{background:#FFF7ED;border-color:var(--primary)}
+.btn-primary{background:var(--primary);color:white;border-color:var(--primary)}
+.quick-filters{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+.quick-btn{padding:6px 12px;border-radius:16px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:white;color:var(--text)}
+.quick-btn:hover,.quick-btn.active{background:var(--primary);color:white;border-color:var(--primary)}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:20px}
+.stat-card{background:white;padding:16px;border-radius:12px;border:2px solid var(--border);cursor:pointer;transition:all 0.2s}
+.stat-card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,0.1);border-color:var(--primary)}
+.stat-icon{font-size:24px;margin-bottom:8px}
+.stat-label{font-size:10px;text-transform:uppercase;color:var(--text-muted);font-weight:600}
+.stat-value{font-size:28px;font-weight:800;color:var(--text)}
+.toolbar{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+.search-box{flex:1;min-width:180px;position:relative}
+.search-box input{width:100%;padding:8px 12px 8px 32px;border:1px solid var(--border);border-radius:6px;font-size:13px}
+.search-box input:focus{outline:none;border-color:var(--primary)}
+.search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%)}
+.dropdown{position:relative;display:inline-block}
+.dropdown-content{display:none;position:absolute;background:white;min-width:200px;box-shadow:0 8px 16px rgba(0,0,0,0.15);border-radius:8px;z-index:100;padding:12px;right:0;top:100%}
+.dropdown:hover .dropdown-content{display:block}
+.dropdown-content label{display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px;cursor:pointer}
+.table-container{background:white;border:1px solid var(--border);border-radius:10px;overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:10px 12px;background:#FFEDD5;color:#9A3412;font-size:10px;text-transform:uppercase;font-weight:700;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer}
+th:hover{background:#FED7AA}
+td{padding:8px 12px;border-bottom:1px solid var(--border);font-size:12px}
+tr:hover td{background:#FFF7ED}
+.tag{display:inline-block;padding:2px 6px;background:#F3F4F6;border-radius:10px;font-size:9px;margin-right:3px;color:#4B5563}
+.status-avail{color:#059669;font-weight:600}
+.status-lent{color:#DC2626;font-weight:600}
+.status-sold{color:#6B7280;font-weight:600}
+.results-info{font-size:12px;color:var(--text-muted);margin-bottom:8px}
+.hidden{display:none!important}
+.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;justify-content:center;align-items:center}
+.modal-overlay.show{display:flex}
+.modal-box{background:white;border-radius:16px;max-width:500px;width:90%;max-height:80vh;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.3);animation:modalIn 0.2s ease}
+@keyframes modalIn{from{transform:scale(0.9);opacity:0}to{transform:scale(1);opacity:1}}
+.modal-header{background:linear-gradient(135deg,var(--primary) 0%,var(--primary-dark) 100%);color:white;padding:16px 20px;display:flex;justify-content:space-between;align-items:center}
+.modal-title{font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px}
+.modal-close{background:rgba(255,255,255,0.2);border:none;color:white;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center}
+.modal-close:hover{background:rgba(255,255,255,0.3)}
+.modal-body{padding:20px;max-height:60vh;overflow-y:auto}
+.modal-chips{display:flex;flex-wrap:wrap;gap:8px}
+.modal-chip{background:var(--primary-light);color:var(--text);padding:6px 12px;border-radius:20px;font-size:13px;font-weight:500}
+@media print{.sidebar,.btn,.quick-filters,.toolbar,.dropdown,.header,.stats-grid,.modal-overlay{display:none!important}.main{margin-left:0!important}body{background:white}}
+</style></head>
+<body>
+<aside class="sidebar">
+<div class="sidebar-header"><div class="logo"><span>📚</span><span>ShelfLife</span></div></div>
+<div class="sidebar-content">
+<button class="btn" style="width:100%;margin-bottom:15px;justify-content:center;background:var(--primary);color:white;border:none" onclick="resetAll()">🔄 Reset Filters</button>
+<div class="filter-section"><div class="section-title">🌍 Language</div>
+${Object.entries(languages).map(([k, v]) => '<label class="filter-option"><input type="checkbox" checked onchange="filterTable()" data-col="lang" data-val="' + (langMap[k] || k) + '"> ' + (langMap[k] || k) + ' <span class="count">' + v + '</span></label>').join('')}
+</div>
+<div class="filter-section"><div class="section-title">🏛️ Building</div>
+${Object.entries(buildings).map(([k, v]) => '<label class="filter-option"><input type="checkbox" checked onchange="filterTable()" data-col="building" data-val="' + k + '"> ' + k + ' <span class="count">' + v + '</span></label>').join('')}
+</div>
+<div class="filter-section"><div class="section-title">⭐ Condition</div>
+${Object.entries(conditions).map(([k, v]) => '<label class="filter-option"><input type="checkbox" checked onchange="filterTable()" data-col="condition" data-val="' + k + '"> ' + k + ' <span class="count">' + v + '</span></label>').join('')}
+</div>
+<div class="filter-section"><div class="section-title">👤 Owner</div>
+${Object.entries(owners).map(([k, v]) => '<label class="filter-option"><input type="checkbox" checked onchange="filterTable()" data-col="owner" data-val="' + k + '"> ' + k + ' <span class="count">' + v + '</span></label>').join('')}
+</div>
+</div></aside>
+<main class="main">
+<div class="header">
+<div><h1 class="page-title">${title}</h1><p class="header-subtitle">Generated: ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} • ${stats.total} books</p></div>
+<div style="display:flex;gap:8px">
+<button class="btn" onclick="exportCSV()">📥 Export CSV</button>
+<button class="btn" onclick="window.print()">🖨️ Print</button>
+</div>
+</div>
+<div class="quick-filters">
+<button class="quick-btn active" onclick="quickFilter('all',this)">📚 All (${stats.total})</button>
+<button class="quick-btn" onclick="quickFilter('avail',this)">📗 Available (${stats.available})</button>
+<button class="quick-btn" onclick="quickFilter('lent',this)">📕 Lent (${stats.lent})</button>
+<button class="quick-btn" onclick="quickFilter('cover',this)">📷 Has Cover (${stats.withCover})</button>
+<button class="quick-btn" onclick="quickFilter('nocover',this)">❌ No Cover (${stats.noCover})</button>
+</div>
+<div class="stats-grid">
+<div class="stat-card" onclick="statCardClick('total')"><div class="stat-icon">📖</div><div class="stat-label">Total</div><div class="stat-value">${stats.total}</div></div>
+<div class="stat-card" onclick="statCardClick('authors')"><div class="stat-icon">✍️</div><div class="stat-label">Authors</div><div class="stat-value">${stats.authors}</div></div>
+<div class="stat-card" onclick="statCardClick('buildings')"><div class="stat-icon">🏛️</div><div class="stat-label">Buildings</div><div class="stat-value">${stats.buildings}</div></div>
+<div class="stat-card" onclick="statCardClick('languages')"><div class="stat-icon">🌍</div><div class="stat-label">Languages</div><div class="stat-value">${stats.languages}</div></div>
+<div class="stat-card" onclick="statCardClick('tags')"><div class="stat-icon">🏷️</div><div class="stat-label">Tags</div><div class="stat-value">${stats.tags}</div></div>
+<div class="stat-card" onclick="statCardClick('owners')"><div class="stat-icon">👤</div><div class="stat-label">Owners</div><div class="stat-value">${stats.owners}</div></div>
+</div>
+<div class="toolbar">
+<button class="btn" onclick="resetAll()">🔄 Reset</button>
+<div class="search-box"><span class="search-icon">🔍</span><input type="text" id="search" placeholder="Search..." oninput="filterTable()"></div>
+<div class="dropdown"><button class="btn">👁️ Columns ▼</button>
+<div class="dropdown-content">
+<label><input type="checkbox" checked onchange="toggleCol('title')"> Title</label>
+<label><input type="checkbox" checked onchange="toggleCol('author')"> Author</label>
+<label><input type="checkbox" checked onchange="toggleCol('lang')"> Language</label>
+<label><input type="checkbox" checked onchange="toggleCol('building')"> Building</label>
+<label><input type="checkbox" onchange="toggleCol('shelf')"> Shelf</label>
+<label><input type="checkbox" checked onchange="toggleCol('owner')"> Owner</label>
+<label><input type="checkbox" onchange="toggleCol('year')"> Year</label>
+<label><input type="checkbox" checked onchange="toggleCol('condition')"> Condition</label>
+<label><input type="checkbox" checked onchange="toggleCol('status')"> Status</label>
+<label><input type="checkbox" onchange="toggleCol('isbn')"> ISBN</label>
+<label><input type="checkbox" checked onchange="toggleCol('tags')"> Tags</label>
+</div></div>
+</div>
+<div class="results-info" id="info">Showing ${stats.total} books</div>
+<div class="table-container">
+<table><thead><tr>
+<th class="col-title" onclick="sortTable(0)">Title ↕</th>
+<th class="col-author" onclick="sortTable(1)">Author ↕</th>
+<th class="col-lang" onclick="sortTable(2)">Lang</th>
+<th class="col-building" onclick="sortTable(3)">Building</th>
+<th class="col-shelf hidden" onclick="sortTable(4)">Shelf</th>
+<th class="col-owner" onclick="sortTable(5)">Owner</th>
+<th class="col-year hidden" onclick="sortTable(6)">Year</th>
+<th class="col-condition" onclick="sortTable(7)">Condition</th>
+<th class="col-status" onclick="sortTable(8)">Status</th>
+<th class="col-isbn hidden" onclick="sortTable(9)">ISBN</th>
+<th class="col-tags">Tags</th>
+</tr></thead>
+<tbody id="tbody">${tableRows}</tbody>
+</table></div>
+</main>
+<div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+<div class="modal-box">
+<div class="modal-header"><div class="modal-title" id="modalTitle"></div><button class="modal-close" onclick="closeModal()">&times;</button></div>
+<div class="modal-body" id="modalBody"></div>
+</div>
+</div>
+<script>
+var sortDir=1,lastCol=-1,activeQuick='all';
+function sortTable(col){if(lastCol===col)sortDir*=-1;else{sortDir=1;lastCol=col;}
+var tb=document.getElementById('tbody');var rows=Array.prototype.slice.call(tb.rows);
+rows.sort(function(a,b){var x=a.cells[col].textContent.toLowerCase(),y=b.cells[col].textContent.toLowerCase();return x<y?-sortDir:x>y?sortDir:0;});
+for(var i=0;i<rows.length;i++)tb.appendChild(rows[i]);}
+function toggleCol(name){var els=document.querySelectorAll('.col-'+name);for(var i=0;i<els.length;i++)els[i].classList.toggle('hidden');}
+function getChecked(col){var cbs=document.querySelectorAll('input[data-col="'+col+'"]:checked');var vals=[];for(var i=0;i<cbs.length;i++)vals.push(cbs[i].getAttribute('data-val').toLowerCase());return vals;}
+function applyAllFilters(){
+try {
+var q=document.getElementById('search').value.toLowerCase();
+var langs=getChecked('lang'),bldgs=getChecked('building'),conds=getChecked('condition'),owners=getChecked('owner');
+var rows=document.querySelectorAll('#tbody tr');var shown=0;
+for(var i=0;i<rows.length;i++){var r=rows[i];var show=true;
+var txt=r.textContent.toLowerCase();
+if(q&&txt.indexOf(q)===-1)show=false;
+if(show&&langs.length>0){var lc=r.querySelector('.col-lang');var lv=lc?lc.textContent.toLowerCase():'';var lm=false;for(var j=0;j<langs.length;j++)if(lv.indexOf(langs[j])!==-1)lm=true;if(!lm)show=false;}
+if(show&&bldgs.length>0){var bc=r.querySelector('.col-building');var bv=bc?bc.textContent.toLowerCase():'';var bm=false;for(var j=0;j<bldgs.length;j++)if(bv.indexOf(bldgs[j])!==-1)bm=true;if(!bm)show=false;}
+if(show&&conds.length>0){var cc=r.querySelector('.col-condition');var cv=cc?cc.textContent.toLowerCase():'';var cm=false;for(var j=0;j<conds.length;j++)if(cv.indexOf(conds[j])!==-1)cm=true;if(!cm)show=false;}
+if(show&&owners.length>0){var oc=r.querySelector('.col-owner');var ov=oc?oc.textContent.toLowerCase():'';var om=false;for(var j=0;j<owners.length;j++)if(ov.indexOf(owners[j])!==-1)om=true;if(!om)show=false;}
+if(show&&activeQuick!=='all'){var sc=r.querySelector('.col-status');var sv=sc?sc.textContent.toLowerCase():'';
+if(activeQuick==='avail'&&sv.indexOf('available')===-1)show=false;
+if(activeQuick==='lent'&&sv.indexOf('lent')===-1)show=false;}
+r.style.display=show?'':'none';if(show)shown++;}
+document.getElementById('info').textContent='Showing '+shown+' books';
+} catch(e) { console.error('Filter Error:', e); }
+}
+function filterTable(){applyAllFilters();}
+function quickFilter(type,btn){var btns=document.querySelectorAll('.quick-btn');for(var i=0;i<btns.length;i++)btns[i].classList.remove('active');btn.classList.add('active');activeQuick=type;applyAllFilters();}
+function resetAll(){
+document.getElementById('search').value='';
+var cbs=document.querySelectorAll('input[type="checkbox"]');for(var i=0;i<cbs.length;i++)cbs[i].checked=true;
+var btns=document.querySelectorAll('.quick-btn');for(var i=0;i<btns.length;i++)btns[i].classList.remove('active');
+document.querySelector('.quick-btn').classList.add('active');activeQuick='all';
+applyAllFilters();
+}
+function drillDown(el){
+resetAll();
+var col=el.getAttribute('data-col');
+var val=el.getAttribute('data-val');
+var escVal=val.replace(/"/g,'\\"');
+// Check sidebar first
+var cb=document.querySelector('input[data-col="'+col+'"][data-val="'+escVal+'"]');
+if(cb){
+var all=document.querySelectorAll('input[data-col="'+col+'"]');for(var i=0;i<all.length;i++)all[i].checked=false;
+cb.checked=true;
+} else {
+document.getElementById('search').value=val;
+}
+filterTable();
+closeModal();
+}
+function showModal(icon,title,items,col){
+document.getElementById('modalTitle').innerHTML=icon+' '+title;
+var html='<div class="modal-chips">';
+for(var i=0;i<items.length;i++){
+// No JS escaping needed, just HTML entity encoding for the attribute value
+var val=items[i].replace(/"/g,'&quot;');
+html+='<span class="modal-chip" style="cursor:pointer" data-col="'+col+'" data-val="'+val+'" onclick="drillDown(this)">'+items[i]+'</span>';
+}
+html+='</div>';document.getElementById('modalBody').innerHTML=html;document.getElementById('modal').classList.add('show');
+}
+function closeModal(){document.getElementById('modal').classList.remove('show');}
+function statCardClick(type){
+var items=[];var icon='';var title='';var col='';
+if(type==='total'){ resetAll(); return; }
+if(type==='authors'){ col='author';icon='✍️';var s=new Set();document.querySelectorAll('#tbody tr').forEach(function(r){var c=r.querySelector('.col-author');if(c&&c.textContent.trim())s.add(c.textContent.trim());});title='Authors ('+s.size+')';items=Array.from(s).sort(); }
+if(type==='buildings'){ col='building';icon='🏛️';var s=new Set();document.querySelectorAll('#tbody tr').forEach(function(r){var c=r.getAttribute('data-building');if(c)s.add(c);});title='Buildings ('+s.size+')';items=Array.from(s).sort(); }
+if(type==='languages'){ col='lang';icon='🌍';var s=new Set();document.querySelectorAll('#tbody tr').forEach(function(r){var c=r.getAttribute('data-lang');if(c)s.add(c);});title='Languages ('+s.size+')';items=Array.from(s).sort(); }
+if(type==='tags'){ col='tags';icon='🏷️';var s=new Set();document.querySelectorAll('#tbody tr').forEach(function(r){var c=r.getAttribute('data-tags');if(c)c.split('|').forEach(function(x){if(x)s.add(x);});});title='Tags ('+s.size+')';items=Array.from(s).sort(); }
+if(type==='owners'){ col='owner';icon='👤';var s=new Set();document.querySelectorAll('#tbody tr').forEach(function(r){var c=r.getAttribute('data-owner');if(c)s.add(c);});title='Owners ('+s.size+')';items=Array.from(s).sort(); }
+showModal(icon,title,items,col);
+}
+var maxTagCols=${maxTags};
+function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['Title','Author','Language','Building','Owner','Condition','Status'];for(var t=1;t<=maxTagCols;t++)hdr.push('Tag_'+t);var csv='\uFEFF'+hdr.join(',')+String.fromCharCode(10);for(var i=0;i<rows.length;i++){if(rows[i].style.display==='none')continue;var r=rows[i];var line=['"'+r.querySelector('.col-title').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-author').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-lang').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-building').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-owner').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-condition').textContent.replace(/"/g,'""')+'"','"'+r.querySelector('.col-status').textContent.replace(/"/g,'""')+'"'];var tags=(r.getAttribute('data-tags')||'').split('|');for(var t=0;t<maxTagCols;t++)line.push('"'+(tags[t]||'').replace(/"/g,'""')+'"');csv+=line.join(',')+String.fromCharCode(10);}var blob=new Blob([csv],{type:'text/csv;charset=utf-8'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='library_export.csv';a.click();}
+<\/script>
+</body></html>`;
+
+                ExportUtils.download(html, `ShelfLife_Dashboard_${ExportUtils.getTimestamp()}.html`, "text/html;charset=utf-8", folder, base);
+            },
             // Export all book cover images to multiple independent ZIP files
             // Each ZIP is standalone and extractable independently
             // onProgress: (current, total, message) => void
@@ -464,12 +763,14 @@
                     alert("JSZip library not loaded. Cannot export images.");
                     return { success: false, error: "JSZip not available" };
                 }
-                if (!window.Capacitor) {
-                    alert("Export Images to ZIP requires Android App.");
-                    return { success: false, error: "Native FS required" };
+
+                // Platform Check
+                const isNative = isNativeCapacitor();
+                let Filesystem = null;
+                if (isNative) {
+                    Filesystem = window.Capacitor.Plugins.Filesystem;
                 }
 
-                const { Filesystem } = window.Capacitor.Plugins;
                 const MAX_IMAGES_PER_ZIP = 150;
                 const MAX_SIZE_PER_ZIP = 100 * 1024 * 1024; // 100MB per ZIP
 
@@ -507,7 +808,7 @@
 
                 onProgress(0, allImages.length, `Starting export of ${allImages.length} images...`);
 
-                const deviceName = localStorage.getItem('shelfLife_deviceName') || 'MYPHONE';
+                const deviceName = localStorage.getItem('shelfLife_deviceName') || (isNative ? 'ANDROID' : 'BROWSER');
                 const now = new Date();
                 const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
                 const baseFilename = `${deviceName}_Images_${dateStr}`;
@@ -515,7 +816,10 @@
                 const folder = 'ShelfLife/Exports';
                 const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
                 const targetDir = Directory[baseStr] || Directory.Documents;
-                try { await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true }); } catch (e) { }
+
+                if (isNative) {
+                    try { await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true }); } catch (e) { }
+                }
 
                 const savedFiles = [];
                 let processedCount = 0;
@@ -545,12 +849,27 @@
                             const zipFilename = estimatedParts > 1 || savedFiles.length > 0 ? `${baseFilename}_Part${partNumber}.zip` : `${baseFilename}.zip`;
                             onProgress(processedCount, allImages.length, `Compressing Part ${partNumber}...`);
 
-                            const zipBlob = await currentZip.generateAsync({ type: "base64", compression: "DEFLATE", compressionOptions: { level: 6 } }, (m) => {
-                                onProgress(processedCount, allImages.length, `Compressing Part ${partNumber}: ${Math.round(m.percent)}%`);
-                            });
-
-                            await Filesystem.writeFile({ path: `${folder}/${zipFilename}`, data: zipBlob, directory: targetDir });
-                            savedFiles.push({ filename: zipFilename, imageCount: currentZipImageCount, sizeMB: Math.round((zipBlob.length * 0.75) / (1024 * 1024)) });
+                            if (isNative) {
+                                // Native Save
+                                const zipBlob = await currentZip.generateAsync({ type: "base64", compression: "DEFLATE", compressionOptions: { level: 6 } }, (m) => {
+                                    onProgress(processedCount, allImages.length, `Compressing Part ${partNumber}: ${Math.round(m.percent)}%`);
+                                });
+                                await Filesystem.writeFile({ path: `${folder}/${zipFilename}`, data: zipBlob, directory: targetDir });
+                                savedFiles.push({ filename: zipFilename, imageCount: currentZipImageCount });
+                            } else {
+                                // Browser Download
+                                const zipBlob = await currentZip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } }, (m) => {
+                                    onProgress(processedCount, allImages.length, `Compressing Part ${partNumber}: ${Math.round(m.percent)}%`);
+                                });
+                                const url = URL.createObjectURL(zipBlob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = zipFilename;
+                                document.body.appendChild(a);
+                                a.click();
+                                setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
+                                savedFiles.push({ filename: zipFilename, imageCount: currentZipImageCount });
+                            }
 
                             if (!isLast) {
                                 currentZip = new JSZip();
@@ -561,15 +880,13 @@
                             await new Promise(r => requestAnimationFrame(r));
                         }
                     }
-
-                    onProgress(allImages.length, allImages.length, "Complete!");
-                    return { success: true, files: savedFiles, totalImages: allImages.length, totalParts: savedFiles.length, folder: `${baseStr}/${folder}` };
-
-                } catch (error) {
-                    console.error("Image ZIP export failed:", error);
-                    return { success: false, error: error.message || "Export failed", partialFiles: savedFiles };
+                    return { success: true, count: savedFiles.length };
+                } catch (e) {
+                    console.error(e);
+                    alert("Export failed: " + e.message);
+                    return { success: false, error: e.message };
                 }
-            }
+            },
         };
 
         const ICONS = {
@@ -611,7 +928,7 @@
 
         // --- TRANSLITERATION ---
         const TRANSLITERATE_MAP = {
-            'α┤à': 'a', 'αñå': 'aa', 'α┤ç': 'i', 'α┤ê': 'ee', 'α┤ë': 'u', 'α┤è': 'oo', 'α┤Ä': 'e', 'α┤Å': 'ea', 'α┤É': 'ai', 'α┤Æ': 'o', 'α┤ô': 'oa', 'α┤ö': 'au', 'α┤é': 'm', 'α┤ò': 'ka', 'α┤û': 'kha', 'α┤ù': 'ga', 'α┤ÿ': 'gha', 'α┤Ö': 'nga', 'α┤Ü': 'cha', 'α┤¢': 'chha', 'α┤£': 'ja', 'α┤¥': 'jha', 'α┤₧': 'nja', 'α┤ƒ': 'ta', 'α┤á': 'ttha', 'α┤í': 'da', 'α┤ó': 'ddha', 'α┤ú': 'na', 'α┤ñ': 'tha', 'α┤Ñ': 'thha', 'α┤ª': 'da', 'α┤º': 'dha', 'α┤¿': 'na', 'α┤¬': 'pa', 'α┤½': 'pha', 'α┤¼': 'ba', 'α┤¡': 'bha', 'α┤«': 'ma', 'α┤»': 'ya', 'α┤░': 'ra', 'α┤▓': 'la', 'α┤╡': 'va', 'α┤╢': 'sha', 'α┤╖': 'sha', 'α┤╕': 'sa', 'α┤╣': 'ha', 'α┤│': 'la', 'α┤┤': 'zha', 'α┤▒': 'ra', 'αñà': 'a', 'αñå': 'aa', 'αñç': 'i', 'αñê': 'ee', 'αñë': 'u', 'αñè': 'oo', 'αñÅ': 'e', 'αñÉ': 'ai', 'αñô': 'o', 'αñö': 'au', 'αñé': 'n', 'αñò': 'ka', 'αñû': 'kha', 'αñù': 'ga', 'αñÿ': 'gha', 'αñÜ': 'cha', 'αñ¢': 'chha', 'αñ£': 'ja', 'αñ¥': 'jha', 'αñƒ': 'ta', 'αñá': 'ttha', 'αñí': 'da', 'αñó': 'ddha', 'αñú': 'na', 'αññ': 'tha', 'αñÑ': 'thha', 'αñª': 'da', 'αñº': 'dha', 'αñ¿': 'na', 'αñ¬': 'pa', 'αñ½': 'pha', 'αñ¼': 'ba', 'αñ¡': 'bha', 'αñ«': 'ma', 'αñ»': 'ya', 'αñ░': 'ra', 'αñ▓': 'la', 'αñ╡': 'va', 'αñ╢': 'sha', 'αñ╖': 'sha', 'αñ╕': 'sa', 'αñ╣': 'ha'
+            'അ': 'a', 'आ': 'aa', 'ഇ': 'i', 'ഈ': 'ee', 'ഉ': 'u', 'ഊ': 'oo', 'എ': 'e', 'ഏ': 'ea', 'ഐ': 'ai', 'ഒ': 'o', 'ഓ': 'oa', 'ഔ': 'au', 'ം': 'm', 'ക': 'ka', 'ഖ': 'kha', 'ഗ': 'ga', 'ഘ': 'gha', 'ങ': 'nga', 'ച': 'cha', 'ഛ': 'chha', 'ജ': 'ja', 'ഝ': 'jha', 'ഞ': 'nja', 'ട': 'ta', 'ഠ': 'ttha', 'ഡ': 'da', 'ഢ': 'ddha', 'ണ': 'na', 'ത': 'tha', 'ഥ': 'thha', 'ദ': 'da', 'ധ': 'dha', 'ന': 'na', 'പ': 'pa', 'ഫ': 'pha', 'ബ': 'ba', 'ഭ': 'bha', 'മ': 'ma', 'യ': 'ya', 'ര': 'ra', 'ല': 'la', 'വ': 'va', 'ശ': 'sha', 'ഷ': 'sha', 'സ': 'sa', 'ഹ': 'ha', 'ള': 'la', 'ഴ': 'zha', 'റ': 'ra', 'अ': 'a', 'आ': 'aa', 'इ': 'i', 'ई': 'ee', 'उ': 'u', 'ऊ': 'oo', 'ए': 'e', 'ऐ': 'ai', 'ओ': 'o', 'औ': 'au', 'ं': 'n', 'क': 'ka', 'ख': 'kha', 'ग': 'ga', 'घ': 'gha', 'च': 'cha', 'छ': 'chha', 'ज': 'ja', 'झ': 'jha', 'ट': 'ta', 'ठ': 'ttha', 'ड': 'da', 'ढ': 'ddha', 'ण': 'na', 'त': 'tha', 'थ': 'thha', 'द': 'da', 'ध': 'dha', 'न': 'na', 'प': 'pa', 'फ': 'pha', 'ब': 'ba', 'भ': 'bha', 'म': 'ma', 'य': 'ya', 'र': 'ra', 'ल': 'la', 'व': 'va', 'श': 'sha', 'ष': 'sha', 'स': 'sa', 'ह': 'ha'
         };
         const transliterate = (text) => text.split('').map(char => TRANSLITERATE_MAP[char] || char).join('');
 
@@ -695,6 +1012,12 @@
         };
 
         const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+        // HELPER: Title Case
+        const toTitleCase = (str) => {
+            if (!str) return '';
+            return str.toLowerCase().replace(/(?:^|\s|-)\S/g, function (a) { return a.toUpperCase(); });
+        };
 
         // AUTO-SUGGEST INPUT with viewport-aware dropdown (avoids keyboard)
         const AutoSuggestInput = ({ label, value, onChange, field, placeholder }) => {
@@ -1122,10 +1445,7 @@
             return TAG_COLORS[hash % TAG_COLORS.length];
         };
 
-        // Title Case formatter for consistent tag naming
-        const toTitleCase = (str) => {
-            return str.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-        };
+
 
         const TagManagerModal = ({ isOpen, onClose, books, onTagsUpdated }) => {
             const [allTags, setAllTags] = useState([]);
@@ -1236,7 +1556,7 @@
                         book.tags = book.tags.map(t => t === renameTag ? renameValue.trim() : t);
                         await db.books.put(book);
                     }
-                    alert(`Renamed "${renameTag}" ΓåÆ "${renameValue.trim()}" in ${booksWithTag.length} books`);
+                    alert(`Renamed "${renameTag}" → "${renameValue.trim()}" in ${booksWithTag.length} books`);
                     onClose();
                     if (onTagsUpdated) onTagsUpdated();
                 } finally {
@@ -1374,7 +1694,7 @@
                                         >
                                             {tag} {tagData && <span className="opacity-60">({tagData.count})</span>}
                                             {isNew && <span className="text-[10px] bg-green-500 text-white px-1 rounded">NEW</span>}
-                                            <button onClick={() => removeTag(tag)} className="hover:text-red-600 ml-1">├ù</button>
+                                            <button onClick={() => removeTag(tag)} className="hover:text-red-600 ml-1">×</button>
                                         </span>
                                     );
                                 })
@@ -1436,7 +1756,7 @@
                             <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4 z-20">
                                 <div className="bg-white rounded-xl w-full max-w-md max-h-[70vh] flex flex-col shadow-xl">
                                     <div className="p-3 border-b flex justify-between items-center bg-blue-500 text-white rounded-t-xl">
-                                        <h3 className="font-bold">≡ƒôï All Tags ({allTags.length})</h3>
+                                        <h3 className="font-bold">📋 All Tags ({allTags.length})</h3>
                                         <button onClick={() => setShowBrowseAll(false)} className="hover:bg-white/20 p-1 rounded"><Icon name="X" size={18} /></button>
                                     </div>
                                     <div className="flex-1 overflow-y-auto p-3">
@@ -1729,7 +2049,7 @@
                         const Scanner = plugins.BarcodeScanner || plugins.BarcodeScanning || plugins.MlkitBarcodeScanning || plugins.CapacitorMlkitBarcodeScanning;
 
                         // VISIBLE DEBUG: Show alert with plugin info (REMOVE AFTER DEBUGGING)
-                        // alert(`DEBUG - Capacitor Plugins Found:\n\n${pluginNames.join(', ') || 'NONE'}\n\nBarcode Scanner: ${Scanner ? 'FOUND Γ£ô' : 'NOT FOUND Γ£ù'}`);
+                        // alert(`DEBUG - Capacitor Plugins Found:\n\n${pluginNames.join(', ') || 'NONE'}\n\nBarcode Scanner: ${Scanner ? 'FOUND ✓' : 'NOT FOUND ✗'}`);
 
                         console.log('Found barcode scanner plugin:', Scanner ? 'Yes' : 'No (using web fallback)');
 
@@ -1860,7 +2180,15 @@
                 );
             }
 
-            // Web fallback UI (Html5QrcodeScanner)
+            // Web fallback UI (Html5QrcodeScanner) with manual input option
+            const [manualIsbn, setManualIsbn] = useState('');
+            const handleManualSubmit = () => {
+                if (manualIsbn && manualIsbn.length >= 10) {
+                    onDetected(manualIsbn.replace(/[^0-9X]/gi, ''));
+                } else {
+                    alert('Please enter a valid ISBN (10 or 13 digits)');
+                }
+            };
             return (
                 <div className="fixed inset-0 bg-black z-50 flex flex-col modal-overlay">
                     <div className="p-4 flex justify-between text-white bg-black/50 absolute top-0 w-full z-10 items-center">
@@ -1871,6 +2199,48 @@
                         </span>
                         <button onClick={onClose}><Icon name="X" /></button>
                     </div>
+                    <div className="mt-16 p-4 bg-gray-800">
+                        <div className="text-white text-sm mb-2">Type ISBN manually:</div>
+                        <div className="flex gap-2">
+                            <input type="text" value={manualIsbn} onChange={(e) => setManualIsbn(e.target.value)}
+                                placeholder="Enter ISBN-10 or ISBN-13"
+                                className="flex-1 p-3 rounded-lg text-black"
+                                onKeyPress={(e) => e.key === 'Enter' && handleManualSubmit()} />
+                            <button onClick={async () => { try { const t = await navigator.clipboard.readText(); setManualIsbn(t.replace(/[^0-9X]/gi, '')); } catch (e) { alert('Could not read clipboard'); } }} className="bg-gray-600 text-white px-3 py-2 rounded-lg font-bold">
+                                Paste
+                            </button>
+                            <button onClick={handleManualSubmit} className="bg-blue-500 text-white px-4 py-2 rounded-lg font-bold">
+                                Search
+                            </button>
+                        </div>
+                        <button onClick={async () => {
+                            try {
+                                const items = await navigator.clipboard.read();
+                                let imgBlob = null;
+                                for (let i = 0; i < items.length; i++) {
+                                    for (let j = 0; j < items[i].types.length; j++) {
+                                        if (items[i].types[j].indexOf('image') === 0) {
+                                            imgBlob = await items[i].getType(items[i].types[j]);
+                                            break;
+                                        }
+                                    }
+                                    if (imgBlob) break;
+                                }
+                                if (!imgBlob) { alert('No image in clipboard. Use Snipping Tool first.'); return; }
+                                const imageUrl = URL.createObjectURL(imgBlob);
+                                const html5QrCode = new Html5Qrcode('temp-reader');
+                                const result = await html5QrCode.scanFile(new File([imgBlob], 'clipboard.png', { type: imgBlob.type }), true);
+                                html5QrCode.clear();
+                                URL.revokeObjectURL(imageUrl);
+                                if (result) { onDetected(result); }
+                            } catch (e) {
+                                alert('Could not find barcode in image: ' + e.message);
+                            }
+                        }} className="mt-2 w-full bg-green-600 text-white px-4 py-3 rounded-lg font-bold">
+                            Scan Barcode from Screenshot
+                        </button>
+                        <div id="temp-reader" style={{ display: 'none' }}></div>
+                    </div>
                     <div id="reader" className="flex-1 bg-white"></div>
                 </div>
             );
@@ -1880,7 +2250,7 @@
         const BookForm = ({ book, onSave, onCancel, onBarcodeFound, globalCurrency, books = [] }) => {
             const [form, setForm] = useState(book ? { ...book, pages: book.pages || [] } : {
                 title: '', phonetic: '', author_name: '', author_initials: '', owner: '', building: '', shelf: '', isbn: '',
-                price: '', currency: 'Γé╣', year: '', lang: 'en', tags: [], status: 'avail', page_count: '', condition: 'Good',
+                price: '', currency: '₹', year: '', lang: 'en', tags: [], status: 'avail', page_count: '', condition: 'Good',
                 front: null, rear: null, thumb: null, pages: []
             });
             const [scanMode, setScanMode] = useState(false);
@@ -1923,18 +2293,74 @@
                         const compressed = await ImageUtils.compressDataUrl(image.dataUrl);
                         setForm(prev => ({ ...prev, [field]: compressed }));
                     } else {
-                        // Fallback for web: trigger file input
-                        const input = document.createElement('input');
-                        input.type = 'file';
-                        input.accept = 'image/*';
-                        input.onchange = async (e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                                const res = await ImageUtils.process(file);
-                                setForm(prev => ({ ...prev, [field]: res }));
+                        // Fallback for Windows/Web: Show custom popup
+                        const choice = await new Promise((resolve) => {
+                            const overlay = document.createElement('div');
+                            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999';
+                            const popup = document.createElement('div');
+                            popup.style.cssText = 'background:white;border-radius:12px;padding:20px;min-width:220px;box-shadow:0 4px 20px rgba(0,0,0,0.3)';
+                            popup.innerHTML = '<div style="font-weight:bold;margin-bottom:15px;text-align:center">Add Image</div>';
+                            const browseBtn = document.createElement('button');
+                            browseBtn.textContent = 'Browse File';
+                            browseBtn.style.cssText = 'width:100%;padding:12px;margin-bottom:8px;border:1px solid #ddd;border-radius:8px;background:#f8f8f8;cursor:pointer;font-size:14px';
+                            browseBtn.onclick = () => { document.body.removeChild(overlay); resolve('browse'); };
+                            const pasteBtn = document.createElement('button');
+                            pasteBtn.textContent = 'Paste from Clipboard';
+                            pasteBtn.style.cssText = 'width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;background:#f8f8f8;cursor:pointer;font-size:14px';
+                            pasteBtn.onclick = () => { document.body.removeChild(overlay); resolve('paste'); };
+                            const cancelBtn = document.createElement('button');
+                            cancelBtn.textContent = 'Cancel';
+                            cancelBtn.style.cssText = 'width:100%;padding:8px;margin-top:12px;border:none;background:transparent;color:#666;cursor:pointer';
+                            cancelBtn.onclick = () => { document.body.removeChild(overlay); resolve(null); };
+                            popup.appendChild(browseBtn);
+                            popup.appendChild(pasteBtn);
+                            popup.appendChild(cancelBtn);
+                            overlay.appendChild(popup);
+                            overlay.onclick = (e) => { if (e.target === overlay) { document.body.removeChild(overlay); resolve(null); } };
+                            document.body.appendChild(overlay);
+                        });
+                        if (!choice) { setForm(prev => ({ ...prev, [field]: null })); return; }
+                        if (choice === 'paste') {
+                            try {
+                                const clipItems = await navigator.clipboard.read();
+                                let imgBlob = null;
+                                for (let i = 0; i < clipItems.length; i++) {
+                                    const item = clipItems[i];
+                                    for (let j = 0; j < item.types.length; j++) {
+                                        const mimeType = item.types[j];
+                                        if (mimeType.indexOf('image') === 0) {
+                                            imgBlob = await item.getType(mimeType);
+                                            break;
+                                        }
+                                    }
+                                    if (imgBlob) break;
+                                }
+                                if (imgBlob) {
+                                    const res = await ImageUtils.process(imgBlob);
+                                    setForm(prev => ({ ...prev, [field]: res }));
+                                } else {
+                                    alert('No image found in clipboard');
+                                    setForm(prev => ({ ...prev, [field]: null }));
+                                }
+                            } catch (clipErr) {
+                                alert('Clipboard error: ' + clipErr.message);
+                                setForm(prev => ({ ...prev, [field]: null }));
                             }
-                        };
-                        input.click();
+                        } else {
+                            const input = document.createElement('input');
+                            input.type = 'file';
+                            input.accept = 'image/*';
+                            input.onchange = async (e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                    const res = await ImageUtils.process(file);
+                                    setForm(prev => ({ ...prev, [field]: res }));
+                                } else {
+                                    setForm(prev => ({ ...prev, [field]: null }));
+                                }
+                            };
+                            input.click();
+                        }
                     }
                 } catch (err) {
                     setForm(prev => ({ ...prev, [field]: null }));
@@ -1996,18 +2422,68 @@
                         const compressed = await ImageUtils.compressDataUrl(image.dataUrl);
                         setForm(f => ({ ...f, pages: [...(f.pages || []), compressed] }));
                     } else {
-                        // Fallback for web
-                        const input = document.createElement('input');
-                        input.type = 'file';
-                        input.accept = 'image/*';
-                        input.onchange = async (e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                                const res = await ImageUtils.process(file);
-                                setForm(f => ({ ...f, pages: [...(f.pages || []), res] }));
+                        // Fallback for Windows/Web: Show custom popup
+                        const choice = await new Promise((resolve) => {
+                            const overlay = document.createElement('div');
+                            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999';
+                            const popup = document.createElement('div');
+                            popup.style.cssText = 'background:white;border-radius:12px;padding:20px;min-width:220px;box-shadow:0 4px 20px rgba(0,0,0,0.3)';
+                            popup.innerHTML = '<div style="font-weight:bold;margin-bottom:15px;text-align:center">Add Page</div>';
+                            const browseBtn = document.createElement('button');
+                            browseBtn.textContent = 'Browse File';
+                            browseBtn.style.cssText = 'width:100%;padding:12px;margin-bottom:8px;border:1px solid #ddd;border-radius:8px;background:#f8f8f8;cursor:pointer;font-size:14px';
+                            browseBtn.onclick = () => { document.body.removeChild(overlay); resolve('browse'); };
+                            const pasteBtn = document.createElement('button');
+                            pasteBtn.textContent = 'Paste from Clipboard';
+                            pasteBtn.style.cssText = 'width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;background:#f8f8f8;cursor:pointer;font-size:14px';
+                            pasteBtn.onclick = () => { document.body.removeChild(overlay); resolve('paste'); };
+                            const cancelBtn = document.createElement('button');
+                            cancelBtn.textContent = 'Cancel';
+                            cancelBtn.style.cssText = 'width:100%;padding:8px;margin-top:12px;border:none;background:transparent;color:#666;cursor:pointer';
+                            cancelBtn.onclick = () => { document.body.removeChild(overlay); resolve(null); };
+                            popup.appendChild(browseBtn);
+                            popup.appendChild(pasteBtn);
+                            popup.appendChild(cancelBtn);
+                            overlay.appendChild(popup);
+                            overlay.onclick = (e) => { if (e.target === overlay) { document.body.removeChild(overlay); resolve(null); } };
+                            document.body.appendChild(overlay);
+                        });
+                        if (!choice) return;
+                        if (choice === 'paste') {
+                            try {
+                                const items = await navigator.clipboard.read();
+                                let imgBlob = null;
+                                for (let i = 0; i < items.length; i++) {
+                                    for (let j = 0; j < items[i].types.length; j++) {
+                                        if (items[i].types[j].indexOf('image') === 0) {
+                                            imgBlob = await items[i].getType(items[i].types[j]);
+                                            break;
+                                        }
+                                    }
+                                    if (imgBlob) break;
+                                }
+                                if (imgBlob) {
+                                    const res = await ImageUtils.process(imgBlob);
+                                    setForm(f => ({ ...f, pages: [...(f.pages || []), res] }));
+                                } else {
+                                    alert('No image found in clipboard');
+                                }
+                            } catch (clipErr) {
+                                alert('Clipboard error: ' + clipErr.message);
                             }
-                        };
-                        input.click();
+                        } else {
+                            const input = document.createElement('input');
+                            input.type = 'file';
+                            input.accept = 'image/*';
+                            input.onchange = async (e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                    const res = await ImageUtils.process(file);
+                                    setForm(f => ({ ...f, pages: [...(f.pages || []), res] }));
+                                }
+                            };
+                            input.click();
+                        }
                     }
                 } catch (err) {
                     if (err.message && !err.message.includes('cancelled')) {
@@ -2248,7 +2724,7 @@
                             }} onVoice={() => startVoice('title')} isListening={listeningField === 'title'} lang={form.lang} />
                             <div>
                                 <VoiceInput label="Phonetic (Manual)" field="phonetic" value={form.phonetic} onChange={(e) => handleChange('phonetic', e.target.value)} onVoice={() => startVoice('phonetic')} isListening={listeningField === 'phonetic'} lang="en" />
-                                {form.lang === 'en' && <p className="text-xs text-gray-500 mt-1 ml-1">Γ£ô Auto-filled for English books (editable)</p>}
+                                {form.lang === 'en' && <p className="text-xs text-gray-500 mt-1 ml-1">✓ Auto-filled for English books (editable)</p>}
                             </div>
                             <VoiceInput label="ISBN" field="isbn" value={form.isbn} onChange={(e) => handleChange('isbn', e.target.value)} onVoice={() => startVoice('isbn')} isListening={listeningField === 'isbn'} lang="en" />
 
@@ -2289,7 +2765,7 @@
                                     <div className="w-1/3">
                                         <label className="text-xs text-gray-500 font-bold">Currency</label>
                                         <input className="w-full p-3 border rounded-lg text-center font-bold" value={form.currency} onChange={e => handleChange('currency', e.target.value)} list="currencies" />
-                                        <datalist id="currencies"><option value="Γé╣" /><option value="$" /><option value="QAR" /></datalist>
+                                        <datalist id="currencies"><option value="₹" /><option value="$" /><option value="QAR" /></datalist>
                                     </div>
                                     <div className="w-2/3">
                                         <label className="text-xs text-gray-500 font-bold">Price</label>
@@ -2360,7 +2836,7 @@
                     {value.map(t => (
                         <span key={t} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full flex items-center gap-1">
                             {t}
-                            <button onClick={() => removeTag(t)} className="hover:text-red-500">├ù</button>
+                            <button onClick={() => removeTag(t)} className="hover:text-red-500">×</button>
                         </span>
                     ))}
                     <div className="relative flex-1 min-w-[60px]">
@@ -2485,7 +2961,7 @@
 
                             {/* Preview Current Values */}
                             <div className="bg-gray-50 p-3 rounded border">
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">≡ƒôè Current Values</label>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">📊 Current Values</label>
                                 <div className="max-h-24 overflow-y-auto space-y-1">
                                     {preview.map(([v, count]) => (
                                         <div key={v} className="flex justify-between text-sm">
@@ -2589,7 +3065,7 @@
             });
 
             return (
-                <div className="pb-24 flex flex-col h-screen">
+                <div className="flex flex-col min-h-screen">
                     <div className="bg-white p-4 border-b">
                         <h2 className="text-xl font-bold mb-4">Slicer Studio</h2>
 
@@ -2610,7 +3086,7 @@
                             {activeFilters.map((f, i) => (
                                 <span key={i} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full flex items-center gap-1 border border-blue-200">
                                     <b>{f.field}:</b> {f.value}
-                                    <button onClick={() => removeFilter(i)} className="ml-1 text-blue-500 hover:text-red-500 font-bold">├ù</button>
+                                    <button onClick={() => removeFilter(i)} className="ml-1 text-blue-500 hover:text-red-500 font-bold">×</button>
                                 </span>
                             ))}
                             {activeFilters.length > 0 && (
@@ -2629,7 +3105,7 @@
                         </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
+                    <div className="flex-1 overflow-y-auto p-4 pb-24 bg-gray-50">
                         {viewMode === 'grid' ? (
                             <div className="grid grid-cols-2 gap-4">
                                 {filtered.map(b => (
@@ -2646,7 +3122,7 @@
                                         {b.thumb || b.front ? <img src={b.thumb || b.front} loading="lazy" className="w-10 h-14 object-cover rounded" alt="" /> : <div className="w-10 h-14 bg-gray-200 rounded flex items-center justify-center"><Icon name="Book" size={16} /></div>}
                                         <div className="flex-1 min-w-0">
                                             <div className="font-bold text-sm truncate">{b.title}</div>
-                                            <div className="text-xs text-gray-500 truncate">{b.author_name || b.author} ΓÇó {b.publisher}</div>
+                                            <div className="text-xs text-gray-500 truncate">{b.author_name || b.author} • {b.publisher}</div>
                                         </div>
                                         <div className="text-xs font-bold text-gray-400">{b.pub_year}</div>
                                     </div>
@@ -2829,7 +3305,7 @@
                                         <div className="flex-1 min-w-0">
                                             <h3 className="font-bold text-sm truncate">{b.title}</h3>
                                             <p className="text-xs text-gray-500 truncate">{b.author_name || b.author}</p>
-                                            <div className="text-[10px] text-gray-400">{b.publisher} ΓÇó {b.pub_year}</div>
+                                            <div className="text-[10px] text-gray-400">{b.publisher} • {b.pub_year}</div>
                                         </div>
                                         <div className="font-bold text-sm">{b.currency || ''} {b.price}</div>
                                     </div>
@@ -2876,7 +3352,7 @@
 
             const handleSaveImage = async (imgSrc) => {
                 try {
-                    if (window.Capacitor) {
+                    if (isNativeCapacitor()) {
                         const { Filesystem } = window.Capacitor.Plugins;
                         const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
                         const targetDir = Directory[baseStr] || Directory.Documents;
@@ -2905,7 +3381,7 @@
                                 data: base64Data,
                                 directory: targetDir
                             });
-                            alert(`Γ£à Saved to Images/${fname}`);
+                            alert(`✅ Saved to Images/${fname}`);
                         } catch (saveErr) {
                             // Fallback: save to root folder
                             const fallbackName = `BookImage_${Date.now()}.jpg`;
@@ -2914,7 +3390,7 @@
                                 data: base64Data,
                                 directory: targetDir
                             });
-                            alert(`ΓÜá∩╕Å Saved to root as ${fallbackName}`);
+                            alert(`⚠️ Saved to root as ${fallbackName}`);
                         }
                     } else {
                         // Web fallback: download link
@@ -2925,7 +3401,7 @@
                         a.click();
                     }
                 } catch (e) {
-                    alert("Γ¥î Save failed: " + e.message);
+                    alert("❌ Save failed: " + e.message);
                 }
             };
 
@@ -2993,23 +3469,31 @@
 
             // Copy book details to clipboard
             const copyBookDetails = () => {
-                const text = `≡ƒôÜ ${book.title}${book.phonetic && book.phonetic !== book.title ? ` (${book.phonetic})` : ''}
-                                Γ£ì∩╕Å ${book.author_name || book.author || 'Unknown'}${book.author_initials ? ` (${book.author_initials})` : ''}
-                                ≡ƒôû ISBN: ${book.isbn || 'N/A'}
-                                ≡ƒôà Published: ${book.pub_year || '?'} by ${book.publisher || 'Unknown'}
-                                ≡ƒîÉ Language: ${book.language || book.lang || 'EN'}
-                                ≡ƒôä Pages: ${book.page_count || 'N/A'}
-                                ≡ƒôì Location: ${book.building || '?'} / ${book.shelf || '?'}
-                                ≡ƒæñ Owner: ${book.owner || 'N/A'}
-                                ≡ƒôï Condition: ${book.condition || 'Good'} | ${book.status === 'avail' ? 'Available' : 'Lent'}
-                                ≡ƒÆ░ Value: ${book.currency || ''} ${book.price || 'N/A'}
-                                ≡ƒÅ╖∩╕Å Tags: ${(book.tags || []).join(', ') || 'None'}
+                const dateAdded = book.date_added ? new Date(book.date_added).toLocaleDateString() : 'Unknown';
+                const text = `📚 ${book.title}${book.phonetic && book.phonetic !== book.title ? ` (${book.phonetic})` : ''}
+                                ✍️ ${book.author_name || book.author || 'Unknown'}${book.author_initials ? ` (${book.author_initials})` : ''}
+                                📖 ISBN: ${book.isbn || 'N/A'}
+                                📅 Published: ${book.pub_year || '?'} by ${book.publisher || 'Unknown'}
+                                🌐 Language: ${book.language || book.lang || 'EN'}
+                                📄 Pages: ${book.page_count || 'N/A'}
+                                📍 Location: ${book.building || '?'} / ${book.shelf || '?'}
+                                👤 Owner: ${book.owner || 'N/A'}
+                                📋 Condition: ${book.condition || 'Good'} | ${book.status === 'avail' ? 'Available' : 'Lent'}
+                                💰 Value: ${book.currency || ''} ${book.price || 'N/A'}
+                                🏷️ Tags: ${(book.tags || []).join(', ') || 'None'}
+                                📅 Added: ${dateAdded}
+                                
+                                📝 Description:
+                                ${book.description || 'No description.'}
+                                
+                                🗒️ Notes:
+                                ${book.notes || 'No notes.'}
 
                                 Exported from ShelfLife`;
                 navigator.clipboard.writeText(text).then(() => {
-                    alert('Γ£à Copied to clipboard!');
+                    alert('✅ Copied to clipboard!');
                 }).catch(() => {
-                    alert('Γ¥î Copy failed');
+                    alert('❌ Copy failed');
                 });
             };
 
@@ -3104,7 +3588,7 @@
 
                                 <span className="text-gray-500">Status:</span>
                                 <span className={`font-medium ${book.status === 'avail' ? 'text-green-600' : 'text-orange-600'}`}>
-                                    {book.status === 'avail' ? 'Γ£ô Available' : 'Γùê Lent Out'}
+                                    {book.status === 'avail' ? '✓ Available' : '◈ Lent Out'}
                                 </span>
 
                                 <span className="text-gray-500">Price:</span>
@@ -3147,7 +3631,7 @@
 
             const pubStats = useMemo(() => {
                 const c = {}; books.forEach(b => { const k = b.publisher || 'Unknown'; c[k] = (c[k] || 0) + 1; });
-                return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 5);
+                return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 25);
             }, [books]);
 
             // NEW: Lang/Loc Stats for Dash
@@ -3162,12 +3646,12 @@
 
             const locStats = useMemo(() => {
                 const c = {}; books.forEach(b => { const k = b.building || 'Unknown'; c[k] = (c[k] || 0) + 1; });
-                return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 5);
+                return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 25);
             }, [books]);
 
             const tagStats = useMemo(() => {
                 const c = {}; books.forEach(b => { if (b.tags) b.tags.forEach(t => c[t] = (c[t] || 0) + 1) });
-                return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 5);
+                return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 25);
             }, [books]);
 
             const condStats = useMemo(() => {
@@ -3248,10 +3732,26 @@
             const [showReports, setShowReports] = useState(false);
             const [showTagManager, setShowTagManager] = useState(false);
             const [showHelp, setShowHelp] = useState(false);
+            const [showFindReplace, setShowFindReplace] = useState(false);
+            const [showCSVImport, setShowCSVImport] = useState(false);
+            // Find & Replace state
+            const [frField, setFrField] = useState('owner');
+            const [frFind, setFrFind] = useState('');
+            const [frReplace, setFrReplace] = useState('');
+            const [frCaseSensitive, setFrCaseSensitive] = useState(false);
+            const [frExactMatch, setFrExactMatch] = useState(true);
+            const [frPreview, setFrPreview] = useState([]);
+            const [frApplied, setFrApplied] = useState(false);
+            // CSV Import state
+            const [csvFile, setCsvFile] = useState(null);
+            const [csvData, setCsvData] = useState([]);
+            const [csvPreview, setCsvPreview] = useState({ total: 0, matched: 0, unmatched: 0 });
+            const [csvProcessing, setCsvProcessing] = useState(false);
+            const [csvDone, setCsvDone] = useState(false);
             const [imageExportStatus, setImageExportStatus] = useState({ exporting: false, current: 0, total: 0, message: '' });
-            const APP_VERSION = '2.8.0';
-            const BUILD_DATE = '2026-02-13 20:10';
-            const COMMIT_HASH = 'android-fixes';
+            const APP_VERSION = '2.7.0';
+            const BUILD_DATE = '2026-02-10 11:50';
+            const COMMIT_HASH = 'datafix';
 
             useEffect(() => {
                 try {
@@ -3265,85 +3765,113 @@
 
             // Consolidated Chunked Backup Helper
             const performChunkedBackup = async (textOnly = false) => {
-                if (!window.Capacitor) { alert("Backup requires Android App (Native Filesystem)."); return; }
                 try {
-                    const { Filesystem, Device } = window.Capacitor.Plugins;
                     const allBooks = await db.books.toArray();
                     const now = new Date();
                     const ts = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '_' + String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0') + '-' + String(now.getSeconds()).padStart(2, '0');
-
-                    // NEW FOLDER: ShelfLife/Backups
-                    const folder = 'ShelfLife/Backups';
-                    const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
-                    const targetDir = Directory[baseStr] || Directory.Documents;
-
-                    // Ensure Folders
-                    try { await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true }); } catch (e) { }
-
-                    const TARGET_SIZE = 9 * 1024 * 1024; // 9MB safe limit for chunks
-                    let part = 1;
-                    let currentChunk = [];
-                    let currentSize = 0;
                     const typePrefix = textOnly ? 'TXT_BK' : 'FULL_BK';
-                    const deviceName = localStorage.getItem('shelfLife_deviceName') || 'MYPHONE';
+                    const deviceName = localStorage.getItem('shelfLife_deviceName') || 'Desktop';
 
-                    // Get device info for signature
-                    let deviceInfo = { model: 'Unknown', platform: 'unknown' };
-                    try {
-                        if (Device) {
-                            const info = await Device.getInfo();
-                            deviceInfo = { model: info.model || 'Unknown', platform: info.platform || 'unknown', manufacturer: info.manufacturer || '' };
-                        }
-                    } catch (e) { }
+                    // Prepare books
+                    const processedBooks = textOnly
+                        ? allBooks.map(b => ({ ...b, front: null, rear: null, thumb: null, pages: [] }))
+                        : allBooks;
 
-                    // Create signature object to include in first chunk
+                    // Create signature
                     const signature = {
                         __shelflife_signature__: {
                             version: '2.0',
-                            created: ExportUtils.getReadableTimestamp(now),
+                            created: now.toISOString(),
                             device_nickname: deviceName,
-                            device_model: deviceInfo.model,
-                            device_manufacturer: deviceInfo.manufacturer,
-                            device_platform: deviceInfo.platform,
+                            device_model: 'Desktop',
+                            device_platform: 'windows',
                             type: typePrefix,
                             book_count: allBooks.length
                         }
                     };
 
-                    // Always include signature in first chunk
-                    currentChunk.push(signature);
-                    currentSize += JSON.stringify(signature).length;
+                    const backupData = [signature, ...processedBooks];
+                    const filename = `SL_${typePrefix}_${deviceName}_${ts}.json`;
+                    const jsonStr = JSON.stringify(backupData);
 
-                    for (const rawBook of allBooks) {
-                        const book = textOnly ? { ...rawBook, front: null, rear: null, thumb: null, pages: [] } : rawBook;
-                        const s = JSON.stringify(book);
-                        if (currentSize + s.length > TARGET_SIZE && currentChunk.length > 0) {
-                            const fname = `SL_${typePrefix}_${deviceName}_Part${part}_${ts}.json`;
-                            await Filesystem.writeFile({
-                                path: `${folder}/${fname}`,
-                                data: JSON.stringify(currentChunk),
-                                directory: targetDir,
-                                encoding: Encoding.UTF8
+                    if (isTauri()) {
+                        // Tauri: Save As dialog
+                        try {
+                            const { save } = window.__TAURI__.dialog;
+                            const { writeTextFile } = window.__TAURI__.fs;
+                            const filePath = await save({
+                                defaultPath: filename,
+                                filters: [{ name: 'JSON', extensions: ['json'] }]
                             });
-                            part++;
-                            currentChunk = [];
-                            currentSize = 0;
+                            if (filePath) {
+                                await writeTextFile(filePath, jsonStr);
+                                alert(`✅ Backup (${textOnly ? 'Text Only' : 'Full'}) Complete!\n\n📚 ${allBooks.length} books\n📂 Saved to: ${filePath}`);
+                            }
+                        } catch (tauriErr) {
+                            console.error('Tauri save failed:', tauriErr);
+                            // Fall through to browser download
+                            const blob = new Blob([jsonStr], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url; a.download = filename;
+                            document.body.appendChild(a); a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                            alert(`✅ Backup (${textOnly ? 'Text Only' : 'Full'}) Complete!\n\n📚 ${allBooks.length} books\n📂 Downloaded: ${filename}`);
                         }
-                        currentChunk.push(book);
-                        currentSize += s.length;
-                    }
+                    } else if (isNativeCapacitor()) {
+                        // Capacitor: Chunked backup to native filesystem
+                        const { Filesystem, Device } = window.Capacitor.Plugins;
+                        const folder = 'ShelfLife/Backups';
+                        const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
+                        const targetDir = Directory[baseStr] || Directory.Documents;
+                        try { await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true }); } catch (e) { }
 
-                    if (currentChunk.length > 0) {
-                        const fname = `SL_${typePrefix}_${deviceName}_Part${part}_${ts}.json`;
-                        await Filesystem.writeFile({
-                            path: `${folder}/${fname}`,
-                            data: JSON.stringify(currentChunk),
-                            directory: targetDir,
-                            encoding: Encoding.UTF8
-                        });
-                    }
+                        let deviceInfo = { model: 'Unknown', platform: 'unknown' };
+                        try {
+                            if (Device) {
+                                const info = await Device.getInfo();
+                                deviceInfo = { model: info.model || 'Unknown', platform: info.platform || 'unknown', manufacturer: info.manufacturer || '' };
+                            }
+                        } catch (e) { }
+                        signature.__shelflife_signature__.device_model = deviceInfo.model;
+                        signature.__shelflife_signature__.device_platform = deviceInfo.platform;
+                        signature.__shelflife_signature__.device_manufacturer = deviceInfo.manufacturer;
 
-                    alert(`Backup (${textOnly ? 'Text Only' : 'Full'}) Complete!\nSaved ${part} file(s) to:\n${baseStr}/${folder}/\n\nDevice: ${deviceName}\nModel: ${deviceInfo.model}`);
+                        const TARGET_SIZE = 9 * 1024 * 1024;
+                        let part = 1;
+                        let currentChunk = [signature];
+                        let currentSize = JSON.stringify(signature).length;
+
+                        for (const rawBook of allBooks) {
+                            const book = textOnly ? { ...rawBook, front: null, rear: null, thumb: null, pages: [] } : rawBook;
+                            const s = JSON.stringify(book);
+                            if (currentSize + s.length > TARGET_SIZE && currentChunk.length > 0) {
+                                const fname = `SL_${typePrefix}_${deviceName}_Part${part}_${ts}.json`;
+                                await Filesystem.writeFile({ path: `${folder}/${fname}`, data: JSON.stringify(currentChunk), directory: targetDir, encoding: Encoding.UTF8 });
+                                part++;
+                                currentChunk = [];
+                                currentSize = 0;
+                            }
+                            currentChunk.push(book);
+                            currentSize += s.length;
+                        }
+                        if (currentChunk.length > 0) {
+                            const fname = `SL_${typePrefix}_${deviceName}_Part${part}_${ts}.json`;
+                            await Filesystem.writeFile({ path: `${folder}/${fname}`, data: JSON.stringify(currentChunk), directory: targetDir, encoding: Encoding.UTF8 });
+                        }
+                        alert(`Backup (${textOnly ? 'Text Only' : 'Full'}) Complete!\nSaved ${part} file(s) to:\n${baseStr}/${folder}/\n\nDevice: ${deviceName}\nModel: ${deviceInfo.model}`);
+                    } else {
+                        // Browser fallback: Download
+                        const blob = new Blob([jsonStr], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url; a.download = filename;
+                        document.body.appendChild(a); a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        alert(`✅ Backup (${textOnly ? 'Text Only' : 'Full'}) Complete!\n\n📚 ${allBooks.length} books\n📂 Downloaded: ${filename}`);
+                    }
 
                     // Track backup for reminder system
                     localStorage.setItem('shelfLife_lastBackupDate', new Date().toISOString());
@@ -3355,35 +3883,34 @@
 
             // Native Restore Helper (REVERTED TO MANUAL SCAN to prevent FilePicker Crashes)
             const performNativeRestore = async () => {
-                if (!window.Capacitor) { alert("Restore requires Android App (Native Filesystem)."); return; }
+                if (!isNativeCapacitor()) { alert("Restore requires Android App (Native Filesystem)."); return; }
                 try {
                     const { Filesystem } = window.Capacitor.Plugins;
 
+                    // Force Manual/Default Folder Logic (Safer)
+                    const folder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife_Backups';
                     const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
                     const targetDir = Directory[baseStr] || Directory.Documents;
 
-                    // Scan BOTH backup folder AND sync folder
-                    const backupFolder = localStorage.getItem('shelfLife_backupFolder') || 'ShelfLife/Backups';
-                    const syncFolder = 'ShelfLife/sync_root_folder';
+                    let folderInput = folder;
+                    // Optional: Ask user to confirm folder if they want to change it
+                    // folderInput = prompt("Confirm Backup Folder to Scan:", folder);
+                    if (!folderInput) return;
 
-                    const scanFolder = async (path) => {
-                        try {
-                            const ret = await Filesystem.readdir({ path, directory: targetDir });
-                            return { folder: path, files: ret.files || [] };
-                        } catch (e) {
-                            return { folder: path, files: [] };
-                        }
-                    };
+                    // Read the folder
+                    const ret = await Filesystem.readdir({
+                        path: folderInput,
+                        directory: targetDir
+                    }).catch(e => {
+                        // If default fails, maybe try the root Documents?
+                        // But for now, just return empty to show "No backups"
+                        return { files: [] };
+                    });
 
-                    const [backupResult, syncResult] = await Promise.all([
-                        scanFolder(backupFolder),
-                        scanFolder(syncFolder)
-                    ]);
-
-                    // Parse Backup Files from backup folder
+                    // Parse Backup Files
                     const groups = {};
-                    const fileSourceMap = {}; // Track which folder each group came from
-                    (backupResult.files).forEach(f => {
+                    (ret.files || []).forEach(f => {
+                        // ... (rest of parsing logic remains same)
                         const name = f.name;
                         let ts = null;
                         // NEW format: SL_FULL_BK_DEVICE_Part1_TIMESTAMP.json or SL_TXT_BK_...
@@ -3398,35 +3925,21 @@
                             const mold = name.match(/ShelfLife_Part\d+(?:_TextOnly)?_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json/);
                             if (mold) ts = `UnknownDevice (${mold[1]})`;
                         }
+
                         if (ts) {
                             if (!groups[ts]) groups[ts] = 0;
                             groups[ts]++;
-                            fileSourceMap[ts] = { folder: backupFolder, type: 'backup' };
-                        }
-                    });
-
-                    // Parse Sync Files from sync folder
-                    (syncResult.files).forEach(f => {
-                        const name = f.name;
-                        if (name.startsWith('shelflife_sync_') && name.endsWith('.json')) {
-                            // Extract device name and timestamp from: shelflife_sync_DEVICE_TIMESTAMP.json
-                            const syncMatch = name.match(/shelflife_sync_(.+?)_(\d{4}.+)\.json/);
-                            if (syncMatch) {
-                                const ts = `\uD83D\uDD04 Sync: ${syncMatch[1]} (${syncMatch[2].replace(/T/g, ' ').slice(0, 16)})`;
-                                groups[ts] = 1;
-                                fileSourceMap[ts] = { folder: syncFolder, type: 'sync', filename: name };
-                            }
                         }
                     });
 
                     const choices = Object.keys(groups).sort().reverse();
                     if (choices.length === 0) {
-                        const bkFiles = backupResult.files.map(f => f.name).slice(0, 5);
-                        const syncFiles = syncResult.files.map(f => f.name).slice(0, 5);
-                        const debugInfo = (bkFiles.length + syncFiles.length) > 0
-                            ? `\n\nBackups folder (${bkFiles.length}): ${bkFiles.join(', ') || 'empty'}\nSync folder (${syncFiles.length}): ${syncFiles.join(', ') || 'empty'}`
-                            : '\n\n(Both folders appear empty or unreadable)';
-                        alert(`No backups or sync files found.${debugInfo}\n\nExpected formats:\n\u2022 SL_FULL_BK_DEVICE_Part1_TIMESTAMP.json\n\u2022 shelflife_sync_DEVICE_TIMESTAMP.json`);
+                        // DEBUG: Show what files were actually found
+                        const fileList = (ret.files || []).map(f => f.name).slice(0, 10);
+                        const debugInfo = fileList.length > 0
+                            ? `\n\nFiles found (first 10):\n${fileList.join('\n')}`
+                            : '\n\n(Folder appears empty or unreadable)';
+                        alert(`No backups found in ${baseStr}/${folderInput}.${debugInfo}\n\nExpected format:\nSL_BK_DEVICE_Part1_YYYY-MM-DD_HH-MM-SS.json`);
                         return;
                     }
 
@@ -3458,28 +3971,24 @@
                         );
                     };
 
-                    const sourceInfo = fileSourceMap[targetSet];
+                    const isLegacy = targetSet.startsWith("UnknownDevice");
+                    // Match timestamp with or without seconds
+                    const datePart = targetSet.match(/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}(?:-\d{2})?/)[0];
+                    const fileList = (ret.files || []).filter(f => f.name.includes(datePart)).sort();
+
                     let stats = { total: 0, added: 0, duplicates: 0, skipped: 0 };
 
-                    if (sourceInfo && sourceInfo.type === 'sync') {
-                        // --- SYNC FILE RESTORE ---
+                    for (const f of fileList) {
                         const c = await Filesystem.readFile({
-                            path: `${sourceInfo.folder}/${sourceInfo.filename}`,
+                            path: `${folderInput}/${f.name}`,
                             directory: targetDir,
                             encoding: Encoding.UTF8
                         });
-                        const syncData = JSON.parse(c.data);
-                        // Handle sync wrapper: extract books array
-                        const chunkData = (syncData._shelflife_sync && Array.isArray(syncData.books))
-                            ? syncData.books
-                            : (Array.isArray(syncData) ? syncData : [syncData]);
+                        const chunkData = JSON.parse(c.data);
                         stats.total += chunkData.length;
 
                         const toAdd = [];
                         for (let book of chunkData) {
-                            if (book.__shelflife_signature__) continue;
-                            delete book.id; // Strip original id to prevent ConstraintError
-
                             if (book.author && !book.author_name) {
                                 const parts = book.author.trim().split(' ');
                                 let name = parts.pop() || '';
@@ -3510,70 +4019,16 @@
                                 }
                             }
                         }
+
                         if (toAdd.length > 0) {
                             await db.books.bulkAdd(toAdd);
                             if (mode !== 'Replace') existingBooks.push(...toAdd);
-                        }
-                    } else {
-                        // --- BACKUP FILE RESTORE (original logic) ---
-                        const isLegacy = targetSet.startsWith("UnknownDevice");
-                        const datePart = targetSet.match(/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}(?:-\d{2})?/)[0];
-                        const restoreFolder = (sourceInfo && sourceInfo.folder) || backupFolder;
-                        const folderContents = await Filesystem.readdir({ path: restoreFolder, directory: targetDir });
-                        const fileList = (folderContents.files || []).filter(f => f.name.includes(datePart)).sort();
-
-                        for (const f of fileList) {
-                            const c = await Filesystem.readFile({
-                                path: `${restoreFolder}/${f.name}`,
-                                directory: targetDir,
-                                encoding: Encoding.UTF8
-                            });
-                            const chunkData = JSON.parse(c.data);
-                            stats.total += chunkData.length;
-
-                            const toAdd = [];
-                            for (let book of chunkData) {
-                                if (book.author && !book.author_name) {
-                                    const parts = book.author.trim().split(' ');
-                                    let name = parts.pop() || '';
-                                    let initials = parts.join(' ') || '';
-                                    if (!initials && !name) name = book.author;
-                                    book.author_name = name;
-                                    book.author_initials = initials;
-                                    delete book.author;
-                                }
-
-                                if (mode === 'Replace') {
-                                    toAdd.push(book);
-                                    stats.added++;
-                                } else {
-                                    const dup = isDuplicate(book, existingBooks);
-                                    if (dup) {
-                                        stats.duplicates++;
-                                        if (mode === 'Merge') {
-                                            book.tags = [...(book.tags || []), 'duplicate'];
-                                            toAdd.push(book);
-                                            stats.added++;
-                                        } else {
-                                            stats.skipped++;
-                                        }
-                                    } else {
-                                        toAdd.push(book);
-                                        stats.added++;
-                                    }
-                                }
-                            }
-
-                            if (toAdd.length > 0) {
-                                await db.books.bulkAdd(toAdd);
-                                if (mode !== 'Replace') existingBooks.push(...toAdd);
-                            }
                         }
                     }
 
                     const logEntry = {
                         id: 'log_' + Date.now(),
-                        timestamp: ExportUtils.getReadableTimestamp(),
+                        timestamp: new Date().toISOString(),
                         source: targetSet,
                         mode: mode,
                         total: stats.total,
@@ -3585,7 +4040,7 @@
                     const logs = JSON.parse(localStorage.getItem('shelfLife_restoreLogs') || '[]');
                     logs.unshift(logEntry);
                     localStorage.setItem('shelfLife_restoreLogs', JSON.stringify(logs.slice(0, 50)));
-                    localStorage.setItem('shelfLife_restore_meta', JSON.stringify({ name: targetSet, date: ExportUtils.getReadableTimestamp() }));
+                    localStorage.setItem('shelfLife_restore_meta', JSON.stringify({ name: targetSet, date: new Date().toLocaleString() }));
 
                     alert(`Restore Complete (${mode})\n\nScanned: ${stats.total}\nAdded: ${stats.added}\nDuplicates: ${stats.duplicates}\nSkipped: ${stats.skipped}`);
                     window.location.reload();
@@ -3632,11 +4087,7 @@
                 // Parse first file to get signature info
                 const firstFileContent = await readFileAsText(allFiles[0]);
                 const firstData = JSON.parse(firstFileContent);
-                // Handle sync wrapper if present
-                const firstBooks = (firstData._shelflife_sync && Array.isArray(firstData.books))
-                    ? firstData.books
-                    : (Array.isArray(firstData) ? firstData : [firstData]);
-                const signature = firstBooks.find(b => b.__shelflife_signature__)?.__shelflife_signature__;
+                const signature = firstData.find(b => b.__shelflife_signature__)?.__shelflife_signature__;
 
                 const signatureInfo = signature
                     ? `Device: ${signature.device_nickname || 'Unknown'}\nModel: ${signature.device_model || 'Unknown'}\nBooks: ${signature.book_count || '?'}`
@@ -3667,10 +4118,19 @@
                 for (const file of allFiles) {
                     try {
                         const content = await readFileAsText(file);
-                        const rawData = JSON.parse(content);
-                        const chunkData = (rawData._shelflife_sync && Array.isArray(rawData.books))
-                            ? rawData.books
-                            : (Array.isArray(rawData) ? rawData : [rawData]);
+                        let chunkData = JSON.parse(content);
+
+                        // Handle sync file format: {_shelflife_sync: true, books: [...]}
+                        if (!Array.isArray(chunkData)) {
+                            if (chunkData._shelflife_sync && Array.isArray(chunkData.books)) {
+                                chunkData = chunkData.books;
+                            } else if (chunkData.books && Array.isArray(chunkData.books)) {
+                                chunkData = chunkData.books;
+                            } else {
+                                console.warn(`Skipping ${file.name}: not a recognized format`);
+                                continue;
+                            }
+                        }
 
                         const toAdd = [];
                         for (let book of chunkData) {
@@ -3721,14 +4181,14 @@
                 }
                 // Generate automatic restore logs (TXT and CSV)
                 const now = new Date();
-                const ts = ExportUtils.getTimestamp();
+                const ts = now.toISOString().replace(/[:.]/g, '-').slice(0, 16);
                 const logFolder = 'ShelfLife/Restore';
                 const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
 
                 const txtLog = `========================================
                                 ShelfLife Restore Log
 ========================================
-Date: ${ExportUtils.getReadableTimestamp(now)}
+Date: ${now.toLocaleString()}
 Mode: ${mode.toUpperCase()}
 ----------------------------------------
 SOURCE FILES:
@@ -3742,10 +4202,10 @@ Duplicates Found: ${stats.duplicates}
 Skipped: ${stats.skipped}
 ========================================`;
 
-                const csvLog = `Date,Mode,Files,Scanned,Added,Duplicates,Skipped\n"${ExportUtils.getReadableTimestamp(now)}","${mode}","${allFiles.map(f => f.name).join('; ')}",${stats.total},${stats.added},${stats.duplicates},${stats.skipped}`;
+                const csvLog = `Date,Mode,Files,Scanned,Added,Duplicates,Skipped\n"${now.toISOString()}","${mode}","${allFiles.map(f => f.name).join('; ')}",${stats.total},${stats.added},${stats.duplicates},${stats.skipped}`;
 
                 // Save logs if on Capacitor
-                if (window.Capacitor) {
+                if (isNativeCapacitor()) {
                     try {
                         const { Filesystem } = window.Capacitor.Plugins;
                         const targetDir = Directory[baseStr] || Directory.Documents;
@@ -3768,7 +4228,7 @@ Skipped: ${stats.skipped}
                     }
                 }
 
-                alert(`Restore Complete (${mode})\n\nScanned: ${stats.total}\nAdded: ${stats.added}\nDuplicates: ${stats.duplicates}\nSkipped: ${stats.skipped}\n\n≡ƒô¥ Logs saved to ${logFolder}/`);
+                alert(`Restore Complete (${mode})\n\nScanned: ${stats.total}\nAdded: ${stats.added}\nDuplicates: ${stats.duplicates}\nSkipped: ${stats.skipped}\n\n📝 Logs saved to ${logFolder}/`);
                 window.location.reload();
             };
 
@@ -3782,7 +4242,7 @@ Skipped: ${stats.skipped}
                 });
             };
             const verifyFolder = async () => {
-                if (!window.Capacitor) return alert("This feature requires the Android app.");
+                if (!isNativeCapacitor()) return alert("This feature requires the Android app.");
                 try {
                     const { Filesystem } = window.Capacitor.Plugins;
                     const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
@@ -3815,7 +4275,7 @@ Skipped: ${stats.skipped}
                         encoding: Encoding.UTF8
                     });
 
-                    alert(`Storage Verified! Γ£à\n\nCreated/Verified:\n≡ƒôé ${root}/\n  Γö£ΓöÇ Backups/\n  Γö£ΓöÇ IMAGES/\n  Γö£ΓöÇ Restore/\n  Γö£ΓöÇ Exports/\n  ΓööΓöÇ to_merge/`);
+                    alert(`Storage Verified! ✅\n\nCreated/Verified:\n📂 ${root}/\n  ├─ Backups/\n  ├─ IMAGES/\n  ├─ Restore/\n  ├─ Exports/\n  └─ to_merge/`);
                 } catch (err) {
                     alert(`Storage Error: ${err.message}\nCheck app permissions.`);
                 }
@@ -3824,77 +4284,108 @@ Skipped: ${stats.skipped}
             // Sync to folder for recovery (enhanced: delete old, show comparison)
             const syncToFolder = async () => {
                 try {
-                    const { Filesystem } = window.Capacitor.Plugins;
-                    // Use global Directory and Encoding constants (defined at top of file)
-                    const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
-                    const targetDir = Directory[baseStr] || Directory.Documents;
-                    const folder = 'ShelfLife/sync_root_folder';
-
-                    // Create folder (ignore error if already exists)
-                    try {
-                        await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true });
-                    } catch (mkdirErr) {
-                        // Ignore "directory exists" errors - this is expected
-                        if (!mkdirErr.message?.includes('exist')) {
-                            throw mkdirErr;
-                        }
-                    }
-
-                    // Read existing sync files for comparison
-                    let previousCount = 0;
-                    let oldFiles = [];
-                    try {
-                        const dirContents = await Filesystem.readdir({ path: folder, directory: targetDir });
-                        oldFiles = dirContents.files.filter(f => f.name && f.name.startsWith('shelflife_sync_') && f.name.endsWith('.json'));
-
-                        // Read the most recent sync file to get previous count
-                        if (oldFiles.length > 0) {
-                            const latestFile = oldFiles.sort((a, b) => (b.name || '').localeCompare(a.name || ''))[0];
-                            try {
-                                const prevData = await Filesystem.readFile({
-                                    path: `${folder}/${latestFile.name}`,
-                                    directory: targetDir,
-                                    encoding: Encoding.UTF8
-                                });
-                                const parsed = JSON.parse(prevData.data);
-                                previousCount = parsed.count || 0;
-                            } catch (e) { /* ignore read errors */ }
-                        }
-                    } catch (e) { /* folder may not exist yet */ }
-
                     const allBooks = await db.books.toArray();
-                    const deviceName = localStorage.getItem('shelfLife_deviceName') || 'Unknown';
+                    const deviceName = localStorage.getItem('shelfLife_deviceName') || 'Desktop';
                     const syncData = {
                         _shelflife_sync: true,
-                        timestamp: ExportUtils.getReadableTimestamp(),
+                        timestamp: new Date().toISOString(),
                         version: APP_VERSION,
                         device: deviceName,
                         count: allBooks.length,
                         books: allBooks
                     };
+                    const filename = `shelflife_sync_${deviceName}_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+                    const jsonStr = JSON.stringify(syncData);
 
-                    const filename = `shelflife_sync_${deviceName}_${ExportUtils.getTimestamp()}.json`;
-                    await Filesystem.writeFile({
-                        path: `${folder}/${filename}`,
-                        data: JSON.stringify(syncData),
-                        directory: targetDir,
-                        encoding: Encoding.UTF8
-                    });
-
-                    // Delete old sync files
-                    for (const oldFile of oldFiles) {
+                    // Check for Tauri (Windows/Mac/Linux desktop app)
+                    if (window.__TAURI__) {
                         try {
-                            await Filesystem.deleteFile({ path: `${folder}/${oldFile.name}`, directory: targetDir });
-                        } catch (e) { /* ignore delete errors */ }
+                            const { save } = window.__TAURI__.dialog;
+                            const { writeTextFile, BaseDirectory } = window.__TAURI__.fs;
+
+                            // Ask user where to save
+                            const filePath = await save({
+                                defaultPath: filename,
+                                filters: [{ name: 'JSON', extensions: ['json'] }]
+                            });
+
+                            if (filePath) {
+                                await writeTextFile(filePath, jsonStr);
+                                alert(`✅ Sync Complete!\n\n📚 ${allBooks.length} books\n📱 Device: ${deviceName}\n📂 Saved to: ${filePath}`);
+                            }
+                            return;
+                        } catch (tauriErr) {
+                            console.error('Tauri save failed:', tauriErr);
+                            // Fall through to browser download
+                        }
                     }
 
-                    // Show comparison
-                    const diff = allBooks.length - previousCount;
-                    const diffText = previousCount === 0 ? 'First sync!' :
-                        (diff > 0 ? `+${diff} new books since last sync` :
-                            diff < 0 ? `${diff} books (some deleted)` : 'No change in book count');
+                    // Check for Capacitor (Android/iOS)
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Filesystem) {
+                        const { Filesystem } = window.Capacitor.Plugins;
+                        const baseStr = localStorage.getItem('shelfLife_backupBase') || 'DOCUMENTS';
+                        const targetDir = Directory[baseStr] || Directory.Documents;
+                        const folder = 'ShelfLife/sync_root_folder';
 
-                    alert(`Γ£à Sync Complete!\n\n≡ƒôÜ ${allBooks.length} books\n≡ƒôè ${diffText}\n≡ƒô▒ Device: ${deviceName}\n≡ƒôé ${folder}/${filename}\n\n${oldFiles.length > 0 ? `≡ƒùæ∩╕Å Deleted ${oldFiles.length} old sync file(s)` : ''}`);
+                        try {
+                            await Filesystem.mkdir({ path: folder, directory: targetDir, recursive: true });
+                        } catch (mkdirErr) {
+                            if (!mkdirErr.message?.includes('exist')) throw mkdirErr;
+                        }
+
+                        // Read existing sync files for comparison
+                        let previousCount = 0;
+                        let oldFiles = [];
+                        try {
+                            const dirContents = await Filesystem.readdir({ path: folder, directory: targetDir });
+                            oldFiles = dirContents.files.filter(f => f.name && f.name.startsWith('shelflife_sync_') && f.name.endsWith('.json'));
+                            if (oldFiles.length > 0) {
+                                const latestFile = oldFiles.sort((a, b) => (b.name || '').localeCompare(a.name || ''))[0];
+                                try {
+                                    const prevData = await Filesystem.readFile({
+                                        path: `${folder}/${latestFile.name}`,
+                                        directory: targetDir,
+                                        encoding: Encoding.UTF8
+                                    });
+                                    const parsed = JSON.parse(prevData.data);
+                                    previousCount = parsed.count || 0;
+                                } catch (e) { }
+                            }
+                        } catch (e) { }
+
+                        await Filesystem.writeFile({
+                            path: `${folder}/${filename}`,
+                            data: jsonStr,
+                            directory: targetDir,
+                            encoding: Encoding.UTF8
+                        });
+
+                        // Delete old sync files
+                        for (const oldFile of oldFiles) {
+                            try {
+                                await Filesystem.deleteFile({ path: `${folder}/${oldFile.name}`, directory: targetDir });
+                            } catch (e) { }
+                        }
+
+                        const diff = allBooks.length - previousCount;
+                        const diffText = previousCount === 0 ? 'First sync!' :
+                            (diff > 0 ? `+${diff} new books since last sync` :
+                                diff < 0 ? `${diff} books (some deleted)` : 'No change in book count');
+                        alert(`✅ Sync Complete!\n\n📚 ${allBooks.length} books\n📊 ${diffText}\n📱 Device: ${deviceName}\n📂 ${folder}/${filename}\n\n${oldFiles.length > 0 ? `🗑️ Deleted ${oldFiles.length} old sync file(s)` : ''}`);
+                        return;
+                    }
+
+                    // Browser fallback - download file
+                    const blob = new Blob([jsonStr], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    alert(`✅ Sync Complete!\n\n📚 ${allBooks.length} books\n📱 Device: ${deviceName}\n📂 Downloaded: ${filename}`);
                 } catch (err) {
                     alert(`Sync Error: ${err.message}\nCheck app permissions.`);
                 }
@@ -3909,7 +4400,7 @@ Skipped: ${stats.skipped}
 
                     {/* ABOUT SECTION */}
                     <div className="bg-gradient-to-br from-blue-500 to-blue-700 p-4 rounded-xl shadow-lg text-white">
-                        <h3 className="font-bold text-xl mb-2">≡ƒôÜ ShelfLife</h3>
+                        <h3 className="font-bold text-xl mb-2">📚 ShelfLife</h3>
                         <div className="space-y-1 text-sm">
                             <p><span className="font-bold">Version:</span> {APP_VERSION}</p>
                             <p><span className="font-bold">Build:</span> {BUILD_DATE}</p>
@@ -3920,16 +4411,16 @@ Skipped: ${stats.skipped}
                                 onClick={() => setShowWhatsNew(!showWhatsNew)}
                                 className="text-xs font-bold mb-1 flex items-center gap-1 hover:underline w-full"
                             >
-                                Γ£¿ What's New in v2.5 {showWhatsNew ? 'Γû╝' : 'Γû╢'}
+                                ✨ What's New in v2.5 {showWhatsNew ? '▼' : '▶'}
                             </button>
                             {showWhatsNew && (
                                 <ul className="text-xs space-y-0.5 list-disc list-inside mt-2">
-                                    <li>≡ƒô╖ Improved camera (Capacitor plugin)</li>
-                                    <li>≡ƒÅ╖∩╕Å Tag Manager: Browse All, Title Case</li>
-                                    <li>≡ƒôü Merge Studio: Multi-folder picker</li>
-                                    <li>≡ƒÆ╛ Sync to Folder with comparison</li>
-                                    <li>≡ƒöì Slicer: Keyboard-aware search</li>
-                                    <li>≡ƒôÜ Help Guide (in Tools section)</li>
+                                    <li>📷 Improved camera (Capacitor plugin)</li>
+                                    <li>🏷️ Tag Manager: Browse All, Title Case</li>
+                                    <li>📁 Merge Studio: Multi-folder picker</li>
+                                    <li>💾 Sync to Folder with comparison</li>
+                                    <li>🔍 Slicer: Keyboard-aware search</li>
+                                    <li>📚 Help Guide (in Tools section)</li>
                                 </ul>
                             )}
                         </div>
@@ -3951,6 +4442,7 @@ Skipped: ${stats.skipped}
                                 <div className="space-y-2">
                                     <button onClick={() => ExportUtils.htmlText(books, 'Mix', 'Library Inventory')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="List" /> HTML Text Report</button>
                                     <button onClick={() => ExportUtils.htmlVisual(books, 'Mix', 'Visual Catalogue')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Image" /> HTML Visual Catalogue</button>
+                                    <button onClick={() => ExportUtils.htmlDashboard(books, 'Library Dashboard')} className="w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg flex items-center justify-center gap-2 text-sm font-bold"><Icon name="LayoutDashboard" /> HTML Dashboard</button>
                                     <button onClick={() => ExportUtils.csv(books, 'Library_Export')} className="w-full py-3 bg-gray-50 rounded-lg flex items-center justify-center gap-2 text-sm"><Icon name="Download" /> Export CSV</button>
 
                                     {/* Export Images to ZIP */}
@@ -3963,11 +4455,11 @@ Skipped: ${stats.skipped}
                                             });
                                             setImageExportStatus({ exporting: false, current: 0, total: 0, message: '' });
                                             if (result.success) {
-                                                const fileList = result.files.map(f => `ΓÇó ${f.filename} (${f.imageCount} images, ~${f.sizeMB}MB)`).join('\n');
-                                                alert(`Γ£à Exported ${result.totalImages} images!\n\n${result.totalParts} ZIP file(s):\n${fileList}\n\nSaved to: ${result.folder}`);
+                                                const fileList = result.files.map(f => `• ${f.filename} (${f.imageCount} images, ~${f.sizeMB}MB)`).join('\n');
+                                                alert(`✅ Exported ${result.totalImages} images!\n\n${result.totalParts} ZIP file(s):\n${fileList}\n\nSaved to: ${result.folder}`);
                                             } else if (result.error && result.error !== 'User cancelled') {
                                                 const partialMsg = result.partialFiles?.length ? `\n(Partial: ${result.partialFiles.length} files saved before error)` : '';
-                                                alert(`Γ¥î Export failed: ${result.error}${partialMsg}`);
+                                                alert(`❌ Export failed: ${result.error}${partialMsg}`);
                                             }
                                         }}
                                         disabled={imageExportStatus.exporting}
@@ -3975,7 +4467,7 @@ Skipped: ${stats.skipped}
                                     >
                                         {imageExportStatus.exporting ? (
                                             <>
-                                                <span className="animate-pulse">≡ƒôª</span>
+                                                <span className="animate-pulse">📦</span>
                                                 <span className="text-xs">{imageExportStatus.message} ({imageExportStatus.current}/{imageExportStatus.total})</span>
                                             </>
                                         ) : (
@@ -3999,7 +4491,293 @@ Skipped: ${stats.skipped}
                         </button>
                     </div>
 
-                    {/* BACKUP & RESTORE SECTION */}
+                    {/* BULK EDIT SECTION */}
+                    <div className="bg-white p-4 rounded-xl shadow border border-teal-100">
+                        <h3 className="font-bold mb-3 text-teal-800 flex items-center gap-2"><Icon name="Edit3" size={18} /> Bulk Edit</h3>
+                        <p className="text-xs text-gray-500 mb-3">Mass-update fields across multiple books at once.</p>
+                        <div className="space-y-2">
+                            <button
+                                onClick={() => setShowFindReplace(true)}
+                                className="w-full py-3 bg-teal-50 text-teal-700 rounded-lg flex items-center justify-center gap-2 text-sm font-bold hover:bg-teal-100 transition"
+                            >
+                                <Icon name="Search" size={18} /> Find & Replace
+                            </button>
+                            <button
+                                onClick={() => setShowCSVImport(true)}
+                                className="w-full py-3 bg-teal-50 text-teal-700 rounded-lg flex items-center justify-center gap-2 text-sm font-bold hover:bg-teal-100 transition"
+                            >
+                                <Icon name="Upload" size={18} /> Import CSV (Merge)
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* FIND & REPLACE MODAL */}
+                    {showFindReplace && (() => {
+                        const fieldOptions = [
+                            { value: 'owner', label: '👤 Owner' },
+                            { value: 'building', label: '🏠 Building' },
+                            { value: 'shelf', label: '📚 Shelf' },
+                            { value: 'publisher', label: '📖 Publisher' },
+                            { value: 'author_name', label: '✍️ Author Name' },
+                            { value: 'author_initials', label: '🔤 Author Initials' },
+                            { value: 'language', label: '🌍 Language' },
+                            { value: 'condition', label: '📋 Condition' },
+                            { value: 'currency', label: '💰 Currency' },
+                            { value: 'tags', label: '🏷️ Tags (individual)' }
+                        ];
+                        // Convert wildcard pattern (* = any chars) to regex
+                        const wildcardToRegex = (pattern, caseSensitive) => {
+                            const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+                            return new RegExp(escaped, caseSensitive ? '' : 'i');
+                        };
+                        const hasWildcard = frFind.includes('*');
+                        const doPreview = () => {
+                            if (!frFind.trim()) { setFrPreview([]); return; }
+                            const regex = hasWildcard ? wildcardToRegex(frFind, frCaseSensitive) : null;
+                            const matches = books.filter(b => {
+                                if (frField === 'tags') {
+                                    return (b.tags || []).some(t => {
+                                        const val = t || '';
+                                        if (hasWildcard) return regex.test(val);
+                                        if (frExactMatch) return frCaseSensitive ? val === frFind : val.toLowerCase() === frFind.toLowerCase();
+                                        return frCaseSensitive ? val.includes(frFind) : val.toLowerCase().includes(frFind.toLowerCase());
+                                    });
+                                } else {
+                                    const val = b[frField] || '';
+                                    if (hasWildcard) return regex.test(val);
+                                    if (frExactMatch) return frCaseSensitive ? val === frFind : val.toLowerCase() === frFind.toLowerCase();
+                                    return frCaseSensitive ? val.includes(frFind) : val.toLowerCase().includes(frFind.toLowerCase());
+                                }
+                            });
+                            setFrPreview(matches.slice(0, 50));
+                        };
+                        const doApply = async () => {
+                            if (!frFind.trim()) return;
+
+                            // Re-scan ALL matches (ignore preview limit)
+                            const regex = hasWildcard ? wildcardToRegex(frFind, frCaseSensitive) : null;
+                            const allMatches = books.filter(b => {
+                                if (frField === 'tags') {
+                                    return (b.tags || []).some(t => {
+                                        const val = t || '';
+                                        if (hasWildcard) return regex.test(val);
+                                        if (frExactMatch) return frCaseSensitive ? val === frFind : val.toLowerCase() === frFind.toLowerCase();
+                                        return frCaseSensitive ? val.includes(frFind) : val.toLowerCase().includes(frFind.toLowerCase());
+                                    });
+                                } else {
+                                    const val = b[frField] || '';
+                                    if (hasWildcard) return regex.test(val);
+                                    if (frExactMatch) return frCaseSensitive ? val === frFind : val.toLowerCase() === frFind.toLowerCase();
+                                    return frCaseSensitive ? val.includes(frFind) : val.toLowerCase().includes(frFind.toLowerCase());
+                                }
+                            });
+
+                            if (allMatches.length === 0) return;
+
+                            for (const book of allMatches) {
+                                if (frField === 'tags') {
+                                    const newTags = (book.tags || []).map(t => {
+                                        if (hasWildcard) {
+                                            if (regex.test(t)) return frReplace;
+                                            return t;
+                                        }
+                                        const matches_ = frExactMatch
+                                            ? (frCaseSensitive ? t === frFind : t.toLowerCase() === frFind.toLowerCase())
+                                            : (frCaseSensitive ? t.includes(frFind) : t.toLowerCase().includes(frFind.toLowerCase()));
+                                        if (matches_) return frExactMatch ? frReplace : t.replace(new RegExp(frFind, frCaseSensitive ? 'g' : 'gi'), frReplace);
+                                        return t;
+                                    });
+                                    await db.books.update(book.id, { tags: newTags });
+                                } else {
+                                    const oldVal = book[frField] || '';
+                                    let newVal;
+                                    if (hasWildcard) {
+                                        newVal = oldVal.replace(regex, frReplace);
+                                    } else {
+                                        newVal = frExactMatch ? frReplace : oldVal.replace(new RegExp(frFind, frCaseSensitive ? 'g' : 'gi'), frReplace);
+                                    }
+                                    await db.books.update(book.id, { [frField]: newVal });
+                                }
+                            }
+                            setFrApplied(true);
+                            setTimeout(() => { setShowFindReplace(false); window.location.reload(); }, 1500);
+                        };
+                        const closeModal = () => { setShowFindReplace(false); setFrFind(''); setFrReplace(''); setFrPreview([]); setFrApplied(false); };
+                        return (
+                            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={closeModal}>
+                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+                                    <div className="bg-gradient-to-r from-teal-500 to-cyan-500 p-4 text-white">
+                                        <div className="flex justify-between items-center">
+                                            <h3 className="font-bold text-lg flex items-center gap-2">🔄 Find & Replace</h3>
+                                            <button onClick={closeModal} className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30">✕</button>
+                                        </div>
+                                        <p className="text-sm opacity-90 mt-1">Mass-update a field across all matching books</p>
+                                    </div>
+                                    <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Field</label>
+                                            <select value={frField} onChange={e => setFrField(e.target.value)} className="w-full p-3 border rounded-lg text-sm bg-gray-50">
+                                                {fieldOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Find</label>
+                                                <input type="text" value={frFind} onChange={e => setFrFind(e.target.value)} placeholder="Text to find..." className="w-full p-3 border rounded-lg text-sm" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Replace With</label>
+                                                <input type="text" value={frReplace} onChange={e => setFrReplace(e.target.value)} placeholder="Replacement text..." className="w-full p-3 border rounded-lg text-sm" />
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-4 text-sm">
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                <input type="checkbox" checked={frCaseSensitive} onChange={e => setFrCaseSensitive(e.target.checked)} className="w-4 h-4" /> Case sensitive
+                                            </label>
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                <input type="checkbox" checked={frExactMatch} onChange={e => setFrExactMatch(e.target.checked)} className="w-4 h-4" /> Exact match only
+                                            </label>
+                                        </div>
+                                        <button onClick={doPreview} className="w-full py-2 bg-gray-100 rounded-lg text-sm font-bold hover:bg-gray-200">🔍 Preview Changes</button>
+                                        {frPreview.length > 0 && (
+                                            <div className="bg-teal-50 rounded-lg p-3 border border-teal-200">
+                                                <div className="text-sm font-bold text-teal-800 mb-2">📚 {frPreview.length} book(s) will be updated</div>
+                                                <div className="max-h-32 overflow-y-auto space-y-1 text-xs">
+                                                    {frPreview.map(b => (
+                                                        <div key={b.id} className="bg-white rounded p-2 flex justify-between items-center">
+                                                            <span className="truncate">{b.title}</span>
+                                                            <span className="text-teal-600 font-mono">{frField === 'tags' ? (b.tags || []).join(', ') : b[frField] || '(empty)'}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="p-4 border-t flex gap-3">
+                                        <button onClick={closeModal} className="flex-1 py-3 border rounded-lg font-bold text-gray-600 hover:bg-gray-50">Cancel</button>
+                                        <button onClick={doApply} disabled={frPreview.length === 0 || frApplied} className={`flex-1 py-3 rounded-lg font-bold text-white ${frApplied ? 'bg-green-500' : frPreview.length > 0 ? 'bg-teal-600 hover:bg-teal-700' : 'bg-gray-300 cursor-not-allowed'}`}>
+                                            {frApplied ? '✅ Applied!' : `Apply to ${frPreview.length} Books`}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
+                    {/* CSV IMPORT MODAL */}
+                    {showCSVImport && (() => {
+                        const parseCSV = (text) => {
+                            const lines = text.split(/\r?\n/).filter(l => l.trim());
+                            if (lines.length < 2) return [];
+                            const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
+                            const rows = [];
+                            for (let i = 1; i < lines.length; i++) {
+                                const values = []; let current = ''; let inQuotes = false;
+                                for (const char of lines[i]) {
+                                    if (char === '"') inQuotes = !inQuotes;
+                                    else if (char === ',' && !inQuotes) { values.push(current.trim()); current = ''; }
+                                    else current += char;
+                                }
+                                values.push(current.trim());
+                                const row = {}; headers.forEach((h, idx) => { row[h] = values[idx] || ''; }); rows.push(row);
+                            }
+                            return rows;
+                        };
+                        const handleFile = async (e) => {
+                            const file = e.target.files?.[0]; if (!file) return;
+                            setCsvFile(file);
+                            const text = await file.text();
+                            const parsed = parseCSV(text);
+                            setCsvData(parsed);
+                            let matched = 0, unmatched = 0;
+                            for (const row of parsed) {
+                                const id = parseInt(row.ID || row.id || '0');
+                                if (id && books.find(b => b.id === id)) matched++; else unmatched++;
+                            }
+                            setCsvPreview({ total: parsed.length, matched, unmatched });
+                        };
+                        const doImport = async () => {
+                            if (csvData.length === 0) return;
+                            setCsvProcessing(true);
+                            const now = new Date();
+                            const ts = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                            let log = `CSV Import Log - ${now.toLocaleString()}\n${'='.repeat(45)}\nFile: ${csvFile?.name || 'Unknown'}\nTotal rows: ${csvData.length}\n`;
+                            let updated = 0, skipped = 0; const changes = [];
+                            for (const row of csvData) {
+                                const id = parseInt(row.ID || row.id || '0');
+                                const existingBook = books.find(b => b.id === id);
+                                if (!existingBook) { skipped++; log += `SKIP: ID ${id} not found\n`; continue; }
+                                const updates = {};
+                                const fieldMap = { 'Title': 'title', 'AuthorName': 'author_name', 'AuthorInitials': 'author_initials', 'Publisher': 'publisher', 'Year': 'pub_year', 'Pages': 'page_count', 'Condition': 'condition', 'Price': 'price', 'Currency': 'currency', 'Owner': 'owner', 'Building': 'building', 'Shelf': 'shelf', 'ISBN': 'isbn', 'Status': 'status' };
+                                for (const [csvKey, dbKey] of Object.entries(fieldMap)) {
+                                    if (row[csvKey] !== undefined && row[csvKey] !== (existingBook[dbKey] || '').toString()) {
+                                        const oldVal = existingBook[dbKey] || ''; const newVal = row[csvKey];
+                                        if (oldVal.toString() !== newVal.toString()) {
+                                            updates[dbKey] = ['pub_year', 'page_count', 'price'].includes(dbKey) ? (parseFloat(newVal) || newVal) : newVal;
+                                            changes.push(`ID ${id}: ${dbKey} "${oldVal}" → "${newVal}"`);
+                                        }
+                                    }
+                                }
+                                const newTags = [];
+                                for (let i = 1; i <= 10; i++) { const tagVal = row[`Tag_${i}`]; if (tagVal && tagVal.trim()) newTags.push(tagVal.trim()); }
+                                if (newTags.length > 0) {
+                                    const oldTags = existingBook.tags || [];
+                                    if (JSON.stringify(oldTags) !== JSON.stringify(newTags)) { updates.tags = newTags; changes.push(`ID ${id}: tags [${oldTags.join(', ')}] → [${newTags.join(', ')}]`); }
+                                }
+                                if (Object.keys(updates).length > 0) { await db.books.update(id, updates); updated++; }
+                            }
+                            log += `\nUpdated: ${updated} books\nSkipped: ${skipped} (ID not found)\n\nChanges:\n${changes.slice(0, 100).join('\n')}${changes.length > 100 ? `\n... and ${changes.length - 100} more` : ''}`;
+                            try { const blob = new Blob([log], { type: 'text/plain' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `csv_import_${ts}.txt`; document.body.appendChild(a); a.click(); document.body.removeChild(a); } catch (e) { console.error('Failed to save log:', e); }
+                            setCsvProcessing(false); setCsvDone(true);
+                            setTimeout(() => { setShowCSVImport(false); window.location.reload(); }, 2000);
+                        };
+                        const closeModal = () => { setShowCSVImport(false); setCsvFile(null); setCsvData([]); setCsvPreview({ total: 0, matched: 0, unmatched: 0 }); setCsvDone(false); };
+                        return (
+                            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={closeModal}>
+                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+                                    <div className="bg-gradient-to-r from-teal-500 to-emerald-500 p-4 text-white">
+                                        <div className="flex justify-between items-center">
+                                            <h3 className="font-bold text-lg flex items-center gap-2">📥 Import CSV (Merge)</h3>
+                                            <button onClick={closeModal} className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30">✕</button>
+                                        </div>
+                                        <p className="text-sm opacity-90 mt-1">Update existing books from an edited CSV file</p>
+                                    </div>
+                                    <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto">
+                                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                                            <b>💡 How it works:</b>
+                                            <ol className="list-decimal list-inside mt-1 space-y-1 text-xs">
+                                                <li>Export CSV from Reports section (includes ID column)</li>
+                                                <li>Edit in Excel (keep ID column unchanged)</li>
+                                                <li>Import here - changes merge by ID, images preserved</li>
+                                            </ol>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-600 uppercase mb-2">Select CSV File</label>
+                                            <input type="file" accept=".csv" onChange={handleFile} className="w-full p-3 border-2 border-dashed rounded-lg text-sm bg-gray-50" />
+                                        </div>
+                                        {csvPreview.total > 0 && (
+                                            <div className="bg-teal-50 rounded-lg p-4 border border-teal-200">
+                                                <div className="text-sm font-bold text-teal-800 mb-2">📊 Preview</div>
+                                                <div className="grid grid-cols-3 gap-2 text-center text-sm">
+                                                    <div className="bg-white rounded p-2"><div className="text-2xl font-bold text-gray-800">{csvPreview.total}</div><div className="text-xs text-gray-500">Total Rows</div></div>
+                                                    <div className="bg-white rounded p-2"><div className="text-2xl font-bold text-green-600">{csvPreview.matched}</div><div className="text-xs text-gray-500">ID Matched</div></div>
+                                                    <div className="bg-white rounded p-2"><div className="text-2xl font-bold text-red-500">{csvPreview.unmatched}</div><div className="text-xs text-gray-500">Not Found</div></div>
+                                                </div>
+                                                {csvPreview.unmatched > 0 && <p className="text-xs text-amber-600 mt-2">⚠️ {csvPreview.unmatched} rows have IDs not found in your library - these will be skipped.</p>}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="p-4 border-t flex gap-3">
+                                        <button onClick={closeModal} className="flex-1 py-3 border rounded-lg font-bold text-gray-600 hover:bg-gray-50">Cancel</button>
+                                        <button onClick={doImport} disabled={csvPreview.matched === 0 || csvProcessing || csvDone} className={`flex-1 py-3 rounded-lg font-bold text-white ${csvDone ? 'bg-green-500' : csvProcessing ? 'bg-teal-400' : csvPreview.matched > 0 ? 'bg-teal-600 hover:bg-teal-700' : 'bg-gray-300 cursor-not-allowed'}`}>
+                                            {csvDone ? '✅ Import Complete!' : csvProcessing ? '⏳ Importing...' : `Import ${csvPreview.matched} Books`}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
                     <div className="bg-white p-4 rounded-xl shadow border border-orange-100">
                         <h3 className="font-bold mb-3 text-orange-800">Backup & Restore</h3>
                         {lastRestore && <div className="text-xs text-gray-500 mb-3 bg-gray-50 p-2 rounded border">Last Restored: <b>{lastRestore.name}</b><br />{lastRestore.date}</div>}
@@ -4055,7 +4833,7 @@ Skipped: ${stats.skipped}
                                     ));
                                 })()}
                             </div>
-                            <p className="text-xs text-gray-400 mt-2 text-center">≡ƒô¥ Restore logs are automatically saved to your backup folder</p>
+                            <p className="text-xs text-gray-400 mt-2 text-center">📝 Restore logs are automatically saved to your backup folder</p>
                         </div>
 
 
@@ -4079,7 +4857,7 @@ Skipped: ${stats.skipped}
                             <button onClick={syncToFolder} className="w-full py-3 bg-blue-600 text-white rounded text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-700">
                                 <Icon name="RefreshCw" /> Sync to Folder
                             </button>
-                            <p className="text-[9px] text-gray-500 text-center">Exports full database to ShelfLife/sync_root_folder/.<br />≡ƒÆí <em>Tip: Use "Restore Backup" to recover from sync files.</em></p>
+                            <p className="text-[9px] text-gray-500 text-center">Exports full database to ShelfLife/sync_root_folder/.<br />💡 <em>Tip: Use "Restore Backup" to recover from sync files.</em></p>
                         </div>
 
                     </div>
@@ -4116,40 +4894,40 @@ Skipped: ${stats.skipped}
                             <div className="mt-3 pt-3 border-t max-h-[400px] overflow-y-auto space-y-4 text-sm">
                                 {/* Quick Start */}
                                 <div>
-                                    <h4 className="font-bold text-green-700 mb-1">≡ƒÜÇ Quick Start</h4>
+                                    <h4 className="font-bold text-green-700 mb-1">🚀 Quick Start</h4>
                                     <ol className="list-decimal list-inside text-xs text-gray-600 space-y-1">
-                                        <li><b>Add your first book</b> ΓÇô Tap + ΓåÆ Scan barcode OR take photo</li>
-                                        <li><b>Organize with tags</b> ΓÇô Add tags like "Fiction", "To Read"</li>
-                                        <li><b>Set up backups</b> ΓÇô Go to Tools ΓåÆ Verify Folder</li>
+                                        <li><b>Add your first book</b> – Tap + → Scan barcode OR take photo</li>
+                                        <li><b>Organize with tags</b> – Add tags like "Fiction", "To Read"</li>
+                                        <li><b>Set up backups</b> – Go to Tools → Verify Folder</li>
                                     </ol>
                                 </div>
 
                                 {/* Features */}
                                 <div>
-                                    <h4 className="font-bold text-green-700 mb-1">≡ƒôû Features Guide</h4>
+                                    <h4 className="font-bold text-green-700 mb-1">📖 Features Guide</h4>
                                     <div className="text-xs text-gray-600 space-y-2">
-                                        <p><b>≡ƒô╖ Adding Books:</b> Scan ISBN for auto-fill, take cover photos, voice input (tap mic icon), multiple languages supported.</p>
-                                        <p><b>≡ƒôÜ Library View:</b> Tap book for details, long-press for quick actions. Multi-select: Long-press ΓåÆ select more ΓåÆ bulk edit/delete.</p>
-                                        <p><b>≡ƒöì Slicer Search:</b> Stack multiple filters (Publisher + Tag + Year). Export filtered results to CSV/HTML.</p>
-                                        <p><b>≡ƒÅ╖∩╕Å Tag Manager:</b> Search or browse all tags. Select 1 tag ΓåÆ Rename. Select 2+ tags ΓåÆ Merge. All new tags auto-capitalize (Title Case).</p>
-                                        <p><b>≡ƒÆ╛ Backups:</b> Full Backup (with images, larger). Text-Only (no images, smaller). Sync to Folder (quick snapshot).</p>
+                                        <p><b>📷 Adding Books:</b> Scan ISBN for auto-fill, take cover photos, voice input (tap mic icon), multiple languages supported.</p>
+                                        <p><b>📚 Library View:</b> Tap book for details, long-press for quick actions. Multi-select: Long-press → select more → bulk edit/delete.</p>
+                                        <p><b>🔍 Slicer Search:</b> Stack multiple filters (Publisher + Tag + Year). Export filtered results to CSV/HTML.</p>
+                                        <p><b>🏷️ Tag Manager:</b> Search or browse all tags. Select 1 tag → Rename. Select 2+ tags → Merge. All new tags auto-capitalize (Title Case).</p>
+                                        <p><b>💾 Backups:</b> Full Backup (with images, larger). Text-Only (no images, smaller). Sync to Folder (quick snapshot).</p>
                                     </div>
                                 </div>
 
                                 {/* Tips */}
                                 <div>
-                                    <h4 className="font-bold text-green-700 mb-1">≡ƒÆí Tips & Tricks</h4>
+                                    <h4 className="font-bold text-green-700 mb-1">💡 Tips & Tricks</h4>
                                     <ul className="text-xs text-gray-600 space-y-1 list-disc list-inside">
-                                        <li>≡ƒÄñ Voice input works best with short phrases</li>
-                                        <li>≡ƒô▒ Device name appears in backup filenames</li>
-                                        <li>≡ƒöä Data auto-refreshes every second</li>
-                                        <li>≡ƒôé Sync files can be restored using "Restore Backup"</li>
+                                        <li>🎤 Voice input works best with short phrases</li>
+                                        <li>📱 Device name appears in backup filenames</li>
+                                        <li>🔄 Data auto-refreshes every second</li>
+                                        <li>📂 Sync files can be restored using "Restore Backup"</li>
                                     </ul>
                                 </div>
 
                                 {/* Troubleshooting */}
                                 <div>
-                                    <h4 className="font-bold text-green-700 mb-1">≡ƒöº Troubleshooting</h4>
+                                    <h4 className="font-bold text-green-700 mb-1">🔧 Troubleshooting</h4>
                                     <ul className="text-xs text-gray-600 space-y-1 list-disc list-inside">
                                         <li><b>App won't load?</b> Clear app cache, reinstall</li>
                                         <li><b>Camera not working?</b> Check app permissions in Settings</li>
@@ -4245,20 +5023,11 @@ Skipped: ${stats.skipped}
                 setStep('processing');
 
                 try {
-                    const { Filesystem } = window.Capacitor.Plugins;
-                    const targetDir = Directory[baseStr] || Directory.Documents;
                     const now = new Date();
                     const ts = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '_' + String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0');
-                    const sessionFolder = `ShelfLife/merge_${ts}`;
-                    const workFolder = `${sessionFolder}/work_files`;
-                    const mergePath = `${folder}/to_merge`;
-                    const deviceName = localStorage.getItem('shelfLife_deviceName') || 'MYPHONE';
+                    const deviceName = localStorage.getItem('shelfLife_deviceName') || 'Desktop';
 
-                    // Create session folders
-                    await Filesystem.mkdir({ path: sessionFolder, directory: targetDir, recursive: true });
-                    await Filesystem.mkdir({ path: workFolder, directory: targetDir, recursive: true });
-
-                    // Collect all books
+                    // Collect all books (shared logic)
                     const masterMap = new Map();
                     const duplicates = [];
                     const sourceInfo = [];
@@ -4277,13 +5046,10 @@ Skipped: ${stats.skipped}
                                     book.tags = [...new Set([...(book.tags || []), 'duplicate'])];
                                     masterMap.set(`dup_${Date.now()}_${Math.random()}`, book);
                                 }
-                                // In append mode, skip duplicate
                             } else {
                                 masterMap.set(key, book);
                             }
                         }
-                        // Note: Files picked via browser file picker cannot be moved/deleted 
-                        // as they're not accessible via Capacitor Filesystem API
                     }
 
                     const allBooks = [...masterMap.values()];
@@ -4301,16 +5067,9 @@ Skipped: ${stats.skipped}
                         }
                     };
 
-                    // Write master file
                     const masterName = `SL_MASTER_${typePrefix}_${deviceName}_${ts}.json`;
-                    await Filesystem.writeFile({
-                        path: `${sessionFolder}/${masterName}`,
-                        directory: targetDir,
-                        data: JSON.stringify([signature, ...allBooks]),
-                        encoding: Encoding.UTF8
-                    });
+                    const masterJson = JSON.stringify([signature, ...allBooks]);
 
-                    // Write TXT log
                     const txtLog = `========================================
 ShelfLife Merge Log
 ========================================
@@ -4325,29 +5084,70 @@ RESULT:
 Total Unique: ${allBooks.length}
 Duplicates Found: ${duplicates.length}
 Mode Action: ${mergeMode === 'merge' ? 'Tagged as duplicate' : 'Skipped'}
-----------------------------------------
-OUTPUT: ${masterName}
 ========================================`;
 
-                    await Filesystem.writeFile({
-                        path: `${sessionFolder}/merge_log.txt`,
-                        directory: targetDir,
-                        data: txtLog,
-                        encoding: Encoding.UTF8
-                    });
+                    // Platform-specific file saving
+                    if (isTauri()) {
+                        // Tauri: Save As dialog
+                        try {
+                            const { save } = window.__TAURI__.dialog;
+                            const { writeTextFile } = window.__TAURI__.fs;
 
-                    // Write CSV log
-                    const csvHeader = 'File,Date,Mode,Books,Output\n';
-                    const csvRow = `"${sourceInfo.map(s => s.name).join('; ')}",${now.toISOString()},${mergeMode},${allBooks.length},"${masterName}"`;
-                    await Filesystem.writeFile({
-                        path: `${sessionFolder}/merge_report.csv`,
-                        directory: targetDir,
-                        data: csvHeader + csvRow,
-                        encoding: Encoding.UTF8
-                    });
+                            const filePath = await save({
+                                defaultPath: masterName,
+                                filters: [{ name: 'JSON', extensions: ['json'] }]
+                            });
 
-                    setStep('complete');
-                    alert(`Γ£à Merge Complete!\n\nMaster: ${masterName}\nBooks: ${allBooks.length}\nDuplicates: ${duplicates.length}\n\nSaved to: ${sessionFolder}`);
+                            if (filePath) {
+                                await writeTextFile(filePath, masterJson);
+                                // Also save log file next to it
+                                const logPath = filePath.replace(/\.json$/i, '_log.txt');
+                                try { await writeTextFile(logPath, txtLog); } catch (e) { }
+
+                                setStep('complete');
+                                alert(`✅ Merge Complete!\n\nMaster: ${masterName}\nBooks: ${allBooks.length}\nDuplicates: ${duplicates.length}\n\nSaved to: ${filePath}`);
+                            }
+                        } catch (tauriErr) {
+                            console.error('Tauri save failed, falling back to download:', tauriErr);
+                            // Fall through to browser download
+                            const blob = new Blob([masterJson], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url; a.download = masterName;
+                            document.body.appendChild(a); a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                            setStep('complete');
+                            alert(`✅ Merge Complete!\n\nBooks: ${allBooks.length}\nDuplicates: ${duplicates.length}\n\nDownloaded: ${masterName}`);
+                        }
+                    } else if (isNativeCapacitor()) {
+                        // Capacitor: Native filesystem
+                        const { Filesystem } = window.Capacitor.Plugins;
+                        const targetDir = Directory[baseStr] || Directory.Documents;
+                        const sessionFolder = `ShelfLife/merge_${ts}`;
+
+                        await Filesystem.mkdir({ path: sessionFolder, directory: targetDir, recursive: true });
+                        await Filesystem.writeFile({ path: `${sessionFolder}/${masterName}`, directory: targetDir, data: masterJson, encoding: Encoding.UTF8 });
+                        await Filesystem.writeFile({ path: `${sessionFolder}/merge_log.txt`, directory: targetDir, data: txtLog, encoding: Encoding.UTF8 });
+
+                        const csvHeader = 'File,Date,Mode,Books,Output\n';
+                        const csvRow = `"${sourceInfo.map(s => s.name).join('; ')}",${now.toISOString()},${mergeMode},${allBooks.length},"${masterName}"`;
+                        await Filesystem.writeFile({ path: `${sessionFolder}/merge_report.csv`, directory: targetDir, data: csvHeader + csvRow, encoding: Encoding.UTF8 });
+
+                        setStep('complete');
+                        alert(`✅ Merge Complete!\n\nMaster: ${masterName}\nBooks: ${allBooks.length}\nDuplicates: ${duplicates.length}\n\nSaved to: ${sessionFolder}`);
+                    } else {
+                        // Browser: Download file
+                        const blob = new Blob([masterJson], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url; a.download = masterName;
+                        document.body.appendChild(a); a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        setStep('complete');
+                        alert(`✅ Merge Complete!\n\nBooks: ${allBooks.length}\nDuplicates: ${duplicates.length}\n\nDownloaded: ${masterName}`);
+                    }
 
                     // Reset
                     setFiles([]);
@@ -4388,7 +5188,7 @@ OUTPUT: ${masterName}
                     {step === 'preview' && (
                         <>
                             <div className="text-xs font-bold text-gray-500 uppercase mb-2">
-                                {files.length} Files Found ΓÇó {totalBooks} Total Books
+                                {files.length} Files Found • {totalBooks} Total Books
                             </div>
 
                             <div className="max-h-48 overflow-y-auto space-y-2 border rounded p-2 bg-gray-50">
@@ -4406,11 +5206,11 @@ OUTPUT: ${masterName}
                                             <div className="font-bold text-sm truncate">{f.name}</div>
                                             {f.signature && (
                                                 <div className="text-xs text-blue-600">
-                                                    ≡ƒô▒ {f.signature.device_nickname || 'Unknown'} ΓÇó {f.signature.device_model || ''} {f.signature.device_manufacturer ? `(${f.signature.device_manufacturer})` : ''}
+                                                    📱 {f.signature.device_nickname || 'Unknown'} • {f.signature.device_model || ''} {f.signature.device_manufacturer ? `(${f.signature.device_manufacturer})` : ''}
                                                 </div>
                                             )}
                                             <div className="text-xs text-gray-500">
-                                                {f.count} books ΓÇó {f.hasImages ? '≡ƒô╖ With Images' : '≡ƒô¥ Text Only'}
+                                                {f.count} books • {f.hasImages ? '📷 With Images' : '📝 Text Only'}
                                             </div>
                                         </div>
                                     </label>
@@ -4552,7 +5352,7 @@ OUTPUT: ${masterName}
             // Auto-detect device name from existing backups or hardware model
             useEffect(() => {
                 const detectDeviceName = async () => {
-                    if (!window.Capacitor) return;
+                    if (!isNativeCapacitor()) return;
                     try {
                         const { Filesystem, Device } = window.Capacitor.Plugins;
                         const targetDir = Directory.Documents;
@@ -4592,7 +5392,7 @@ OUTPUT: ${masterName}
             }, []);
 
             const requestPerms = async () => {
-                if (!window.Capacitor) return;
+                if (!isNativeCapacitor()) return;
                 try {
                     const { Filesystem, Camera } = window.Capacitor.Plugins;
                     setStatus('Requesting permissions...');
@@ -4668,7 +5468,8 @@ OUTPUT: ${masterName}
                                 <p className="text-[10px] text-gray-400 mt-1">Backup filename: SL_BK_{devName || 'MYPHONE'}_Part1_...</p>
                             </div>
 
-                            <div>
+
+                            {isNativeCapacitor() && <div>
                                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Storage Location</label>
                                 <div className="flex gap-2">
                                     <select className="p-3 border rounded-lg bg-gray-50 text-xs font-bold" value={base} onChange={e => setBase(e.target.value)}>
@@ -4683,11 +5484,11 @@ OUTPUT: ${masterName}
                                     />
                                 </div>
                                 <p className="text-[10px] text-gray-400 mt-1">Files will be saved to: {base}/{folder}/</p>
-                            </div>
+                            </div>}
 
-                            <button onClick={requestPerms} className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg border border-gray-300 text-xs">
-                                ≡ƒöô Grant Storage Permissions & Test
-                            </button>
+                            {isNativeCapacitor() && <button onClick={requestPerms} className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg border border-gray-300 text-xs">
+                                🔓 Grant Storage Permissions & Test
+                            </button>}
                             {status && <div className={`text-center text-[10px] font-bold p-1 rounded ${status.includes('Error') ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50'}`}>{status}</div>}
 
                             <button onClick={onComplete} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg transform transition active:scale-95">
@@ -4704,7 +5505,7 @@ OUTPUT: ${masterName}
             const [view, setView] = useState('library');
             const [books, setBooks] = useState([]);
             const [editBook, setEditBook] = useState(null);
-            const [currency, setCurrency] = useState(() => localStorage.getItem('shelfLife_currency') || 'Γé╣');
+            const [currency, setCurrency] = useState(() => localStorage.getItem('shelfLife_currency') || '₹');
             const [showSetup, setShowSetup] = useState(false);
 
             useEffect(() => {
@@ -4723,7 +5524,7 @@ OUTPUT: ${masterName}
 
                 // Android Back Button & Permissions Logic
                 try {
-                    if (window.Capacitor) {
+                    if (isNativeCapacitor()) {
                         const { App } = window.Capacitor.Plugins;
                         // Handle Back Button
                         App.addListener('backButton', ({ canGoBack }) => {
@@ -4771,7 +5572,17 @@ OUTPUT: ${masterName}
             }, [currency]);
 
             // Save Logic
-            const save = async (d) => {
+            const save = async (inputData) => {
+                const d = { ...inputData };
+
+                // Enforce Title Case
+                ['title', 'author', 'publisher', 'series', 'owner', 'building', 'shelf'].forEach(k => {
+                    if (d[k] && typeof d[k] === 'string') d[k] = toTitleCase(d[k].trim());
+                });
+                if (d.tags && Array.isArray(d.tags)) {
+                    d.tags = d.tags.map(t => toTitleCase(t));
+                }
+
                 try {
                     if (d.id) await db.books.put(d);
                     else {
@@ -4838,6 +5649,11 @@ OUTPUT: ${masterName}
                 </div>
             );
         };
+
+        // Platform Mode Detection for CSS Styling (e.g. Text Selection)
+        if (!isNativeCapacitor()) {
+            document.body.classList.add('is-pwa');
+        }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);

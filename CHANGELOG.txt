@@ -1,0 +1,60 @@
+[2026--------------------------------------------------------------------------------
+[2026-02-14 21:50] - Export Script Stability Refactor
+--------------------------------------------------------------------------------
+- [FIX] Export: Refactored interactivity to use HTML Data Attributes instead of
+  inline JavaScript. Eliminates syntax errors caused by special characters (quotes)
+  in book data.
+
+
+[2026-02-14 21:20] - Export Filename Formatted
+--------------------------------------------------------------------------------
+- [FIX] Export: Changed filename timestamp to readable format (e.g., 14-Feb-2026_09-20).
+
+
+[2026-02-14 21:15] - Export Timestamp Formatted
+--------------------------------------------------------------------------------
+- [FIX] Export: Changed timestamp to readable format (e.g., 14 Feb 2026 09:15 PM).
+
+
+[2026-02-14 21:10] - HTML Dashboard Export Enhanced
+--------------------------------------------------------------------------------
+- [NEW] Drill Down: Clicking stat tiles in the exported HTML now filters the table
+  instead of just showing a list. (Supports Author, Publisher, etc.)
+- [NEW] Reset Buttons: Added "Reset Filters" to Side Panel and Main Toolbar.
+- [FIX] Sync: Applied export logic enhancements to Android and PWA versions.
+
+[2026-02-14 12:50] - Session: b36547fa (Core Fixes: Stats/BulkEdit/Copy)
+- [FIX] Stats: Increased limit to Top 25 (Publisher, Location, Tags).
+- [FIX] Bulk Edit: Unlimited (applies to all matches).
+- [FEAT] Copy Details: Added Description, Notes, Date Added.
+- [FEAT] Save Logic: Enforced Title Case to prevent duplicates.
+- [FIX] Text Selection: Fixed CSS for mobile/PWA.
+
+[2026-02-14 11:45] - Session: b36547fa (Android Refinement)
+- [FIX] CSV Export: Added Tab prefix ('\t') to ISBN to prevent Excel scientific notation.
+- [FIX] CSV Export: Improved escaping for all fields to handle quotes/commas robustly.
+- [FEAT] Image Export: Enabled browser-based ZIP export (JSZip) for PWA.
+- [FEAT] UI: Enabled text selection in Library View (PWA Only) via '.is-pwa' class.
+- [FIX] Sync: Fixed Restore logic to handle 'modificationTime' correctly (Android).
+
+==================================================
+PROJECT HISTORY (2025 - 2026)
+==================================================
+
+Phase 4: Android Refinement (Feb 2026)
+- 2026-02-14: v2.8.0 Android Fixes — Fixed Sync Restore (folder scan + file picker crash), added CSV RowNum/ID, standardized timestamps. Isolated Android build to ShelfLife_Android/.
+- 2026-02-02: v2.6.0/v2.6.1 — Added BulkEdit with Wildcard Find/Replace. Fixed window size and sync for Windows/Tauri.
+
+Phase 3: Windows Desktop & Polish (Jan 2026)
+- 2026-01-10: v2.5.3 - v2.5.7 — Critical fixes for Clipboard Paste, HTML tags, and localized library dependencies (React/Dexie included in repo).
+- 2026-01-09: v2.5.0 Windows Release — Launched Windows EXE build via Tauri. Added ISBN input, Image Capture, and HTML Dashboard.
+- 2026-01-02: v2.5.0 Android Stability — Major fix for Barcode Scanner (switched to Capacitor MLKit), Camera permissions, and Sync Folder bugs.
+
+Phase 2: Core Features & Sync (Late Dec 2025)
+- 2025-12-31: v2.3.0 Tag Manager — Full-featured Tag Manager, Export Images to ZIP (chunked).
+- 2025-12-27: v2.0.0 Smart Features — Implemented Smart Restore (multi-file), Backup Signatures (device model), and Persistent Keystore.
+- 2025-12-25: Multi-Device Sync — First implementation of Sync logic, Restore Modes (Replace/Append/Merge), and Device ID.
+- 2025-12-24: Voice & Offline — Added Native Speech Recognition, Offline Google Fonts, and Visual Folder Picker.
+
+Phase 1: Inception (Mid Dec 2025)
+- 2025-12-20: Initial PWA & Cloud Build — Project initialized as "ShelfLife Ultimate PWA". Setup Google Cloud Build workflow.
