@@ -2254,6 +2254,7 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                 front: null, rear: null, thumb: null, pages: []
             });
             const [scanMode, setScanMode] = useState(false);
+            const [scanError, setScanError] = useState(null); // { title, message }
             const [listeningField, setListeningField] = useState(null);
 
             // Auto-fill phonetic for English books when title changes (works with barcode scanner)
@@ -2495,12 +2496,14 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
 
 
             const handleBarcode = async (isbn) => {
-                setScanMode(false);
+                setScanMode(false); // Immediate close to prevent crash
+
                 const exists = await db.books.where('isbn').equals(isbn).first();
                 if (exists) {
-                    // Just alert - don't call onBarcodeFound as it hides the scanner button
-                    alert("This book already exists in your library!");
-                    // Return to clean Add Book form with scanner button visible
+                    setScanError({
+                        title: "Duplicate Found",
+                        message: "This book is already in your library."
+                    });
                     return;
                 }
 
@@ -2516,8 +2519,12 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                                 publisher: info.publisher, pub_year: info.publishedDate?.substring(0, 4),
                                 front: info.imageLinks?.thumbnail, page_count: info.pageCount
                             }));
-                        } else { alert("Not found in API. Please enter details manually."); }
-                    } catch (e) { alert("API Error. Please check internet."); }
+                        } else {
+                            setScanError({ title: "Not Found", message: "Book details not found in online API." });
+                        }
+                    } catch (e) {
+                        setScanError({ title: "API Error", message: "Please check internet connection." });
+                    }
                 } else {
                     setForm(f => ({ ...f, isbn: isbn }));
                     alert("Offline Mode: ISBN Scanned. Please enter details.");
@@ -2642,6 +2649,36 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
             return (
                 <div className="bg-white min-h-screen pb-24">
                     {scanMode && <BarcodeScanner onDetected={handleBarcode} onClose={() => setScanMode(false)} />}
+
+                    {/* SAFE LOOP MODAL: Replacing Alerts to prevent white-screen crashes */}
+                    {scanError && (
+                        <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-6 animate-fade-in">
+                            <div className="bg-white rounded-xl p-6 w-full max-w-sm text-center shadow-2xl">
+                                <Icon name="AlertTriangle" size={48} className="mx-auto text-yellow-500 mb-4" />
+                                <h3 className="font-bold text-xl mb-2">{scanError.title}</h3>
+                                <p className="text-gray-600 mb-8">{scanError.message}</p>
+
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setScanError(null)}
+                                        className="flex-1 py-3 text-gray-600 font-bold bg-gray-100 rounded-lg"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setScanError(null);
+                                            setScanMode(true);
+                                        }}
+                                        className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-lg shadow-lg"
+                                    >
+                                        Scan Again
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="p-4 border-b flex justify-between sticky top-0 bg-white z-20 shadow-sm">
                         <button onClick={onCancel} className="text-gray-500">Cancel</button>
                         <h2 className="font-bold">{book ? 'Edit' : 'Cataloging'}</h2>
