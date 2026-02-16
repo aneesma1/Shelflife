@@ -1,4 +1,13 @@
 --------------------------------------------------------------------------------
+[2026-02-16 21:00] - Android Scanner Loop & Bug Fix
+Conversation ID: b36547fa-f752-4aa9-99ff-b809c22e390e
+Git Commit: c9f8182
+--------------------------------------------------------------------------------
+- [FIX] Scanner Hang: Resolved "White Screen" issue by preventing blocking `alert()` calls during camera teardown.
+- [NEW] Scan Loop: Implemented "Scan Again" modal for duplicates and errors, allowing continuous scanning without app restart.
+
+
+--------------------------------------------------------------------------------
 [2026-02-14 22:15] - Export Script Stability Refactor
 Conversation ID: b36547fa-f752-4aa9-99ff-b809c22e390e
 Git Commit: a184546
