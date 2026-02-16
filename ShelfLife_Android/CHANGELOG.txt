@@ -1,5 +1,7 @@
 --------------------------------------------------------------------------------
-[2026-02-14 21:50] - Export Script Stability Refactor
+[2026-02-14 22:15] - Export Script Stability Refactor
+Conversation ID: b36547fa-f752-4aa9-99ff-b809c22e390e
+Git Commit: a184546
 --------------------------------------------------------------------------------
 - [FIX] Export: Refactored interactivity to use HTML Data Attributes instead of
   inline JavaScript. Eliminates syntax errors caused by special characters (quotes)
@@ -7,48 +9,121 @@
 
 
 --------------------------------------------------------------------------------
-[2026-02-14 21:15] - Export Timestamp Formatted
+[2026-02-14 21:20] - HTML Dashboard Export Enhanced (v2.9)
+Conversation ID: b36547fa-f752-4aa9-99ff-b809c22e390e
+Git Commit: 8d06d2c
 --------------------------------------------------------------------------------
-- [FIX] Export: Changed timestamp to readable format (e.g., 14 Feb 2026 09:15 PM).
-
-
 - [NEW] Drill Down: Clicking stat tiles in the exported HTML now filters the table
   instead of just showing a list. (Supports Author, Publisher, etc.)
 - [NEW] Reset Buttons: Added "Reset Filters" to Side Panel and Main Toolbar.
 - [FIX] Sync: Applied export logic enhancements to Android and PWA versions.
+- [FIX] Export: Changed filename timestamp to readable format (e.g., 14-Feb-2026_09-20).
 
-[2026-02-14 12:50] - Session: b36547fa (Core Fixes: Stats/BulkEdit/Copy)
-- [FIX] Stats: Increased limit to Top 25.
-- [FIX] Bulk Edit: Unlimited.
-- [FEAT] Copy Details: Added Description, Notes, Date.
-- [FEAT] Save Logic: Enforced Title Case.
-- [FIX] Text Selection: Fixed CSS.
 
-[2026-02-14 11:45] - Session: b36547fa (Android Refinement)
-- [FIX] CSV Export: Added Tab prefix ('\t') to ISBN to prevent Excel scientific notation.
-- [FIX] CSV Export: Improved escaping for all fields (matches PWA logic).
-- [FIX] Sync: Fixed Restore logic to handle 'modificationTime' correctly.
-- [NOTE] Image Export: Uses Native Filesystem (unchanged).
-- [NOTE] UI: Text selection remains disabled (native behavior).
+--------------------------------------------------------------------------------
+[2026-02-14 12:50] - Session: b36547fa (Core Fixes: Stats/BulkEdit/Copy/Android)
+Conversation ID: b36547fa-f752-4aa9-99ff-b809c22e390e
+Git Commit: 2d52fe1
+--------------------------------------------------------------------------------
+- [FIX] Stats: Increased limit to Top 25 (Publisher, Location, Tags).
+- [FIX] Bulk Edit: Unlimited (applies to all matches).
+- [FEAT] Copy Details: Added Description, Notes, Date Added.
+- [FEAT] Save Logic: Enforced Title Case to prevent duplicates.
+- [FIX] Text Selection: Fixed CSS for mobile/PWA.
+- [FIX] CSV Export: Added Tab prefix ('\t') to ISBN, better escaping.
+- [FEAT] Image Export: Enabled browser-based ZIP export (JSZip) for PWA.
+- [FIX] Sync: Fixed Restore logic to handle 'modificationTime' correctly (Android).
 
-==================================================
-PROJECT HISTORY (2025 - 2026)
-==================================================
 
-Phase 4: Android Refinement (Feb 2026)
-- 2026-02-14: v2.8.0 Android Fixes — Fixed Sync Restore (folder scan + file picker crash), added CSV RowNum/ID, standardized timestamps. Isolated Android build to ShelfLife_Android/.
-- 2026-02-02: v2.6.0/v2.6.1 — Added BulkEdit with Wildcard Find/Replace. Fixed window size and sync for Windows/Tauri.
+--------------------------------------------------------------------------------
+[2026-02-10] - v2.7.0 Fix backup/restore/merge for Tauri
+Conversation ID: 08082eed-1ddd-46bc-b6bf-80e522b67fbc
+Git Commit: 1cf93f6
+--------------------------------------------------------------------------------
+- [FIX] Backup/Restore: Fixed issues with merging logic on Tauri windows.
+- [FIX] Window Size: Reduced height to 700px for better fit.
 
-Phase 3: Windows Desktop & Polish (Jan 2026)
-- 2026-01-10: v2.5.3 - v2.5.7 — Critical fixes for Clipboard Paste, HTML tags, and localized library dependencies (React/Dexie included in repo).
-- 2026-01-09: v2.5.0 Windows Release — Launched Windows EXE build via Tauri. Added ISBN input, Image Capture, and HTML Dashboard.
-- 2026-01-02: v2.5.0 Android Stability — Major fix for Barcode Scanner (switched to Capacitor MLKit), Camera permissions, and Sync Folder bugs.
 
-Phase 2: Core Features & Sync (Late Dec 2025)
-- 2025-12-31: v2.3.0 Tag Manager — Full-featured Tag Manager, Export Images to ZIP (chunked).
-- 2025-12-27: v2.0.0 Smart Features — Implemented Smart Restore (multi-file), Backup Signatures (device model), and Persistent Keystore.
-- 2025-12-25: Multi-Device Sync — First implementation of Sync logic, Restore Modes (Replace/Append/Merge), and Device ID.
-- 2025-12-24: Voice & Offline — Added Native Speech Recognition, Offline Google Fonts, and Visual Folder Picker.
+--------------------------------------------------------------------------------
+[2026-02-02] - v2.6.0 BulkEdit with Wildcard Find/Replace
+Conversation ID: 08082eed-1ddd-46bc-b6bf-80e522b67fbc
+Git Commit: 1486a43
+--------------------------------------------------------------------------------
+- [FEAT] Bulk Edit: Added support for * wildcards in Find/Replace.
+- [FIX] Window Size: Fixed centering and dimensions for Windows build.
 
-Phase 1: Inception (Mid Dec 2025)
-- 2025-12-20: Initial PWA & Cloud Build — Project initialized as "ShelfLife Ultimate PWA". Setup Google Cloud Build workflow.
+
+--------------------------------------------------------------------------------
+[2026-01-10] - v2.5.3 - v2.5.7 Critical fixes & Local Libs
+Conversation ID: f25471e8-32a0-4043-9244-4b3fcb2b3aa5
+Git Commit: 07f9d74
+--------------------------------------------------------------------------------
+- [FIX] Clipboard: Fixed mismatched HTML tags in paste overlay.
+- [FIX] Libs: Added React, Babel, Dexie, TailwindCSS to repo for offline support.
+- [FIX] Scripts: Critical script tag escape fixes.
+
+
+--------------------------------------------------------------------------------
+[2026-01-09] - v2.5.0 Windows Release
+Conversation ID: 8937dee4-5078-4014-a3e7-99d0ee9ab73f
+Git Commit: 3477329
+--------------------------------------------------------------------------------
+- [FEAT] Platform: Launched Windows EXE build via Tauri.
+- [FEAT] Input: Added ISBN input support.
+- [FEAT] Camera: Added Image Capture functionality.
+- [FEAT] Dashboard: Added HTML Visual Dashboard export.
+
+
+--------------------------------------------------------------------------------
+[2026-01-06] - v2.5.0 Android Stability (Barcode Scanner)
+Conversation ID: f25471e8-32a0-4043-9244-4b3fcb2b3aa5
+Git Commit: 6cd088a
+--------------------------------------------------------------------------------
+- [FIX] Scanner: Switched to Capacitor MLKit plugin. Pre-install Google Module.
+- [FIX] UX: Added step-by-step debug alerts for scanner failure points.
+
+
+--------------------------------------------------------------------------------
+[2026-01-02] - v2.5.0 Core Fixes & Help
+Conversation ID: f25471e8-32a0-4043-9244-4b3fcb2b3aa5
+Git Commit: 4d3f7a3
+--------------------------------------------------------------------------------
+- [FIX] Camera: Fixed permissions and native prompt loop.
+- [FIX] Sync: Fixed folder selection bugs on Android.
+- [FEAT] Help: Added basic help section.
+
+
+--------------------------------------------------------------------------------
+[2025-12-31] - v2.3.0 Tag Manager & Images
+Conversation ID: f25471e8-32a0-4043-9244-4b3fcb2b3aa5
+Git Commit: 5289c22
+--------------------------------------------------------------------------------
+- [FEAT] Tags: Full-featured Tag Manager.
+- [FEAT] Export: Export Images to ZIP (chunked).
+
+
+--------------------------------------------------------------------------------
+[2025-12-27] - v2.0.0 Smart Features
+Conversation ID: 455e4445-d649-45c7-834f-577f42638fe6
+Git Commit: 5cb2073
+--------------------------------------------------------------------------------
+- [FEAT] Restore: Smart Restore (multi-file).
+- [FEAT] Backup: Device model signatures in backup files.
+- [FEAT] Security: Persistent Keystore implementation.
+
+
+--------------------------------------------------------------------------------
+[2025-12-25] - Multi-Device Sync
+Conversation ID: b6145618-4f8a-4b93-838f-8d58f9cba9a7
+Git Commit: e40cee2
+--------------------------------------------------------------------------------
+- [FEAT] Sync: Implemented Sync logic, Restore Modes (Replace/Append/Merge).
+- [FEAT] ID: Added Device ID tracking.
+
+
+--------------------------------------------------------------------------------
+[2025-12-20] - Initial PWA & Cloud Build
+Conversation ID: b6145618-4f8a-4b93-838f-8d58f9cba9a7
+Git Commit: Initial
+--------------------------------------------------------------------------------
+- [INIT] Project initialized as "ShelfLife Ultimate PWA".
