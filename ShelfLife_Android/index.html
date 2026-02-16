@@ -2032,6 +2032,8 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
             const [scanning, setScanning] = useState(false);
             const [error, setError] = useState(null);
             const [useWebFallback, setUseWebFallback] = useState(false);
+            const scanSuccessful = React.useRef(false);
+            const isMounted = React.useRef(true);
 
             useEffect(() => {
                 window.addEventListener('online', () => setOnline(true));
@@ -2087,44 +2089,51 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                                 }
 
                                 // Step 3: Start native scanner
-                                setScanning(true);
+                                if (isMounted.current) setScanning(true);
                                 const result = await Scanner.scan({
                                     formats: ['EAN_13', 'EAN_8', 'UPC_A', 'UPC_E'],
                                 });
+                                scanSuccessful.current = true; // Mark as successfully finished
 
                                 console.log('Scan result:', result);
 
-                                setScanning(false);
-                                if (result.barcodes && result.barcodes.length > 0) {
-                                    onDetected(result.barcodes[0].rawValue);
-                                } else {
-                                    onClose();
+                                if (isMounted.current) {
+                                    setScanning(false);
+                                    if (result.barcodes && result.barcodes.length > 0) {
+                                        onDetected(result.barcodes[0].rawValue);
+                                    } else {
+                                        onClose();
+                                    }
                                 }
                             } catch (innerErr) {
                                 console.error('Scanner inner error:', innerErr);
                                 // Fall back to web scanner on any error
-                                setUseWebFallback(true);
+                                if (isMounted.current) setUseWebFallback(true);
                             }
                         } else {
                             // No native plugin found - fall back to web scanner
                             console.log('Using web fallback (Html5QrcodeScanner)');
-                            setUseWebFallback(true);
+                            if (isMounted.current) setUseWebFallback(true);
                         }
                     } catch (err) {
                         // alert(`DEBUG OUTER ERROR:\n\n${err.message || err}`);
                         console.error('Barcode scan error:', err);
                         // On error, try web fallback
-                        setUseWebFallback(true);
+                        if (isMounted.current) setUseWebFallback(true);
                     }
                 };
 
                 startScanning();
 
                 return () => {
+                    isMounted.current = false;
                     // Cleanup for Capacitor scanner if needed
                     const plugins = window.Capacitor?.Plugins || {};
                     const Scanner = plugins.BarcodeScanner || plugins.BarcodeScanning || plugins.MlkitBarcodeScanning || plugins.CapacitorMlkitBarcodeScanning;
-                    if (Scanner && Scanner.stopScan) {
+
+                    // SAFE CLEANUP: Only stop if scan was NOT successful (user cancelled or error)
+                    // If scan was successful, plugin closes itself. Calling stopScan again causes freeze.
+                    if (Scanner && Scanner.stopScan && !scanSuccessful.current) {
                         try { Scanner.stopScan(); } catch (e) { }
                     }
                 };
