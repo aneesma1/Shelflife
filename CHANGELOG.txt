@@ -1,4 +1,17 @@
 --------------------------------------------------------------------------------
+[2026-02-17 22:07] - Scanner Architecture Redesign (White Screen Fix)
+Conversation ID: b36547fa-f752-4aa9-99ff-b809c22e390e
+Git Commit: 069371a
+--------------------------------------------------------------------------------
+- [REDESIGN] Scanner now calls native API directly from button click handler,
+  bypassing React component lifecycle entirely. Eliminates white screen crash.
+- [FIX] All scan error paths (Duplicate, Not Found, Offline, Error) use
+  non-blocking modal with Scan Again / Cancel buttons.
+- [FIX] Removed last remaining blocking alert() in offline scan path.
+- [FIX] handleBarcode wrapped in try/catch for full error protection.
+
+
+--------------------------------------------------------------------------------
 [2026-02-17 17:55] - Scanner White Screen: Comprehensive Fix
 Conversation ID: b36547fa-f752-4aa9-99ff-b809c22e390e
 Git Commit: 98c5e0f
