@@ -2097,14 +2097,18 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
 
                                 console.log('Scan result:', result);
 
-                                if (isMounted.current) {
-                                    setScanning(false);
-                                    if (result.barcodes && result.barcodes.length > 0) {
-                                        onDetected(result.barcodes[0].rawValue);
-                                    } else {
-                                        onClose();
+                                // CRITICAL: Delay callback to let WebView fully resume
+                                // after native scanner Activity closes
+                                setTimeout(() => {
+                                    if (isMounted.current) {
+                                        setScanning(false);
+                                        if (result.barcodes && result.barcodes.length > 0) {
+                                            onDetected(result.barcodes[0].rawValue);
+                                        } else {
+                                            onClose();
+                                        }
                                     }
-                                }
+                                }, 300);
                             } catch (innerErr) {
                                 console.error('Scanner inner error:', innerErr);
                                 // Fall back to web scanner on any error
@@ -2506,37 +2510,41 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
 
             const handleBarcode = async (isbn) => {
                 setScanMode(false); // Immediate close to prevent crash
-
-                const exists = await db.books.where('isbn').equals(isbn).first();
-                if (exists) {
-                    setScanError({
-                        title: "Duplicate Found",
-                        message: "This book is already in your library."
-                    });
-                    return;
-                }
-
-                if (navigator.onLine) {
-                    try {
-                        const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-                        const data = await res.json();
-                        if (data.items && data.items[0]) {
-                            const info = data.items[0].volumeInfo;
-                            setForm(f => ({
-                                ...f, isbn: isbn, title: info.title,
-                                author_name: info.authors?.[0] || '', author_initials: '',
-                                publisher: info.publisher, pub_year: info.publishedDate?.substring(0, 4),
-                                front: info.imageLinks?.thumbnail, page_count: info.pageCount
-                            }));
-                        } else {
-                            setScanError({ title: "Not Found", message: "Book details not found in online API." });
-                        }
-                    } catch (e) {
-                        setScanError({ title: "API Error", message: "Please check internet connection." });
+                try {
+                    const exists = await db.books.where('isbn').equals(isbn).first();
+                    if (exists) {
+                        setScanError({
+                            title: "Duplicate Found",
+                            message: "This book is already in your library."
+                        });
+                        return;
                     }
-                } else {
-                    setForm(f => ({ ...f, isbn: isbn }));
-                    alert("Offline Mode: ISBN Scanned. Please enter details.");
+
+                    if (navigator.onLine) {
+                        try {
+                            const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+                            const data = await res.json();
+                            if (data.items && data.items[0]) {
+                                const info = data.items[0].volumeInfo;
+                                setForm(f => ({
+                                    ...f, isbn: isbn, title: info.title,
+                                    author_name: info.authors?.[0] || '', author_initials: '',
+                                    publisher: info.publisher, pub_year: info.publishedDate?.substring(0, 4),
+                                    front: info.imageLinks?.thumbnail, page_count: info.pageCount
+                                }));
+                            } else {
+                                setScanError({ title: "Not Found", message: "Book details not found in online API." });
+                            }
+                        } catch (e) {
+                            setScanError({ title: "API Error", message: "Please check internet connection." });
+                        }
+                    } else {
+                        setForm(f => ({ ...f, isbn: isbn }));
+                        setScanError({ title: "Offline", message: "ISBN saved. Please enter book details manually." });
+                    }
+                } catch (err) {
+                    console.error('handleBarcode error:', err);
+                    setScanError({ title: "Error", message: "Something went wrong. Please try again." });
                 }
             };
 
