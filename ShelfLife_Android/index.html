@@ -2548,6 +2548,55 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                 }
             };
 
+            // NATIVE SCAN: Bypasses BarcodeScanner component entirely
+            // Calls Scanner.scan() directly from button click — no lifecycle conflicts
+            const startNativeScan = async () => {
+                const plugins = window.Capacitor?.Plugins || {};
+                const Scanner = plugins.BarcodeScanner || plugins.BarcodeScanning || plugins.MlkitBarcodeScanning || plugins.CapacitorMlkitBarcodeScanning;
+
+                if (!Scanner) {
+                    // No native scanner — use web fallback component
+                    setScanMode(true);
+                    return;
+                }
+
+                try {
+                    // Check module availability
+                    const { available } = await Scanner.isGoogleBarcodeScannerModuleAvailable();
+                    if (!available) {
+                        setScanError({ title: "Setup", message: "Installing scanner module. Please try again in a few seconds." });
+                        await Scanner.installGoogleBarcodeScannerModule();
+                        return;
+                    }
+
+                    // Check permissions
+                    const permResult = await Scanner.requestPermissions();
+                    if (permResult.camera !== 'granted') {
+                        setScanError({ title: "Permission", message: "Camera permission is required to scan barcodes." });
+                        return;
+                    }
+
+                    // Scan — opens native camera, waits for result, closes camera
+                    const result = await Scanner.scan({
+                        formats: ['EAN_13', 'EAN_8', 'UPC_A', 'UPC_E'],
+                    });
+
+                    console.log('Native scan result:', result);
+
+                    if (result.barcodes && result.barcodes.length > 0) {
+                        // Small delay to let WebView fully resume after native Activity
+                        await new Promise(r => setTimeout(r, 300));
+                        await handleBarcode(result.barcodes[0].rawValue);
+                    }
+                    // If no barcodes, user cancelled — do nothing
+                } catch (err) {
+                    // User cancelled scan — do nothing
+                    if (err.message && (err.message.includes('cancel') || err.message.includes('closed'))) return;
+                    console.error('Native scan error:', err);
+                    setScanError({ title: "Scanner Error", message: err.message || "Could not open scanner." });
+                }
+            };
+
             let activeRecognition = null;
             let voiceTimeout = null;
 
@@ -2685,7 +2734,7 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                                     <button
                                         onClick={() => {
                                             setScanError(null);
-                                            setScanMode(true);
+                                            startNativeScan();
                                         }}
                                         className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-lg shadow-lg"
                                     >
@@ -2703,7 +2752,7 @@ function exportCSV(){var rows=document.querySelectorAll('#tbody tr');var hdr=['T
                     </div>
 
                     <div className="p-4 space-y-5">
-                        {!book && <button onClick={() => setScanMode(true)} className="w-full py-4 bg-gray-800 text-white rounded-xl flex flex-col items-center justify-center font-bold mb-4"><Icon name="Barcode" size={32} /> <span>Scan Barcode</span></button>}
+                        {!book && <button onClick={startNativeScan} className="w-full py-4 bg-gray-800 text-white rounded-xl flex flex-col items-center justify-center font-bold mb-4"><Icon name="Barcode" size={32} /> <span>Scan Barcode</span></button>}
 
                         {/* GALLERY */}
                         <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
