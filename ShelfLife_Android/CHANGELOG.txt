@@ -1,4 +1,16 @@
 --------------------------------------------------------------------------------
+[2026-02-17 17:55] - Scanner White Screen: Comprehensive Fix
+Conversation ID: b36547fa-f752-4aa9-99ff-b809c22e390e
+Git Commit: 98c5e0f
+--------------------------------------------------------------------------------
+- [FIX] White Screen: Deferred scanner callbacks by 300ms to let WebView resume
+  after native scanner Activity closes (root cause of crash).
+- [FIX] Offline Alert: Replaced blocking `alert()` with non-blocking modal.
+- [FIX] Error Protection: Wrapped `handleBarcode` in try/catch to prevent
+  unhandled DB/API errors from crashing React.
+
+
+--------------------------------------------------------------------------------
 [2026-02-16 21:50] - Android Scanner Stability Fix
 Conversation ID: b36547fa-f752-4aa9-99ff-b809c22e390e
 Git Commit: ef65e18
